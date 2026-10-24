@@ -1,0 +1,14 @@
+{
+  "name": "livemic",
+  "version": "0.3.1",
+  "description": "Web dashboard for monitoring and controlling Shure SLX-D receivers",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "demo": "node server.js --demo",
+    "test": "node test/run.js"
+  },
+  "engines": { "node": ">=18" },
+  "license": "UNLICENSED",
+  "private": true
+}

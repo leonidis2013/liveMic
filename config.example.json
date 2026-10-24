@@ -1,0 +1,11 @@
+{
+  "port": 8080,
+  "controlPin": "",
+  "readOnly": false,
+  "meterMs": 250,
+  "receivers": [
+    { "id": "rx1", "name": "Stage Left", "host": "192.168.1.51", "channels": 2 },
+    { "id": "rx2", "name": "Stage Right", "host": "192.168.1.52", "channels": 2 },
+    { "id": "rx3", "name": "Choir", "host": "192.168.1.53", "channels": 1 }
+  ]
+}

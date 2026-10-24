@@ -1,0 +1,9 @@
+.git
+.github
+node_modules
+test
+data
+config.json
+*.md
+*.zip
+*.png

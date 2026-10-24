@@ -1,0 +1,714 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>LiveMic</title>
+<script>
+(function () {
+  var p = 'auto';
+  try { p = localStorage.getItem('slxd-theme') || 'auto'; } catch (e) {}
+  var light = p === 'light' || (p === 'auto' && window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches);
+  document.documentElement.setAttribute('data-theme', light ? 'light' : 'dark');
+})();
+</script>
+<style>
+  /* Same palette, controls and settings layout as the LivePi web page */
+  :root { --bg:#0d1015; --card:#151a21; --card2:#1b2129; --line:#252c36; --fg:#d8dee6; --dim:#7c8794; --faint:#4c5561; --acc:#4c8dff; --teal:#2ec4b6; --bad:#ef4c4c; --ok:#3ecf6e; --warn:#f2c94c; --inset:#0b0e12; --knob:#d8dee6; --onacc:#0d1015; --shadow:#0008; --r:10px; color-scheme:dark; }
+  :root[data-theme=light] { --bg:#e9edf2; --card:#fbfcfd; --card2:#f0f3f6; --line:#d3dae3; --fg:#18202b; --dim:#586474; --faint:#97a1ae; --acc:#2563d6; --teal:#0f9488; --bad:#d63232; --ok:#23a056; --warn:#cf9a10; --inset:#e3e8ee; --knob:#ffffff; --onacc:#ffffff; --shadow:#0003; color-scheme:light; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { min-height:100vh; }
+  .hide { display:none !important; }
+  #app { padding:0 14px calc(20px + env(safe-area-inset-bottom)); }
+
+  header { display:flex; flex-wrap:wrap; gap:14px; align-items:center; padding:10px 14px; padding-top:calc(10px + env(safe-area-inset-top)); margin-bottom:14px;
+           background:var(--card); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:10; }
+  h1 { font-size:15px; margin:0; letter-spacing:.12em; text-transform:uppercase; font-weight:800; }
+  h1 small { display:block; font-size:10px; letter-spacing:.04em; color:var(--dim); font-weight:400; text-transform:none; }
+  h2 { font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--dim); margin:0 0 10px; font-weight:700; }
+  h2::before { content:""; display:inline-block; width:3px; height:11px; background:var(--acc); border-radius:2px; margin-right:7px; vertical-align:-1px; }
+
+  #status { flex:1; min-width:0; display:flex; gap:6px; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
+  #status::-webkit-scrollbar { display:none; }
+  .st { flex:0 0 auto; display:inline-flex; align-items:center; gap:6px; background:var(--card2); border-radius:999px; padding:3px 10px; font-size:12px; color:var(--dim); white-space:nowrap; }
+  .st.bad { background:color-mix(in srgb, var(--bad) 18%, transparent); color:var(--bad); }
+  .st.warn { background:color-mix(in srgb, var(--warn) 16%, transparent); color:var(--warn); }
+  .dot { width:7px; height:7px; border-radius:50%; background:var(--faint); flex:none; }
+  .dot.ok { background:var(--ok); } .dot.warn { background:var(--warn); } .dot.bad { background:var(--bad); }
+
+  select, input, button { background:var(--card2); color:var(--fg); border:1px solid transparent; border-radius:8px; padding:7px 11px; font:inherit; }
+  input:focus, select:focus { outline:2px solid color-mix(in srgb, var(--acc) 55%, transparent); outline-offset:0; }
+  button { cursor:pointer; font-weight:600; touch-action:manipulation; }
+  button:hover { background:color-mix(in srgb, var(--card2) 80%, var(--fg) 8%); }
+  button:disabled, input:disabled { opacity:.35; cursor:not-allowed; }
+  button.on { background:var(--acc); color:var(--onacc); }
+  .seg { display:inline-flex; background:var(--card2); border-radius:9px; padding:3px; gap:2px; }
+  .seg button { border-radius:7px; background:transparent; padding:6px 12px; }
+  .seg button.on { background:var(--acc); color:var(--onacc); }
+  .note { color:var(--dim); font-size:12px; }
+
+  /* settings button, top right: opens Settings, turns into Done */
+  .gear { display:flex; align-items:center; justify-content:center; gap:6px; width:32px; height:32px; padding:0; border-radius:8px; background:transparent; color:var(--dim); }
+  .gear:hover { color:var(--fg); background:var(--card2); }
+  .gear svg { width:20px; height:20px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+  .gear span { display:none; font-size:13px; }
+  .gear.on { width:auto; padding:0 12px; background:var(--acc); color:var(--onacc); }
+  .gear.on svg { display:none; } .gear.on span { display:inline; }
+
+  /* ===== mixer: channel strips ===== */
+  #alerts { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
+  #alerts:empty { display:none; }
+  .strips { display:flex; flex-wrap:wrap; gap:12px; align-items:stretch; }
+  .strip { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px; width:176px; flex:0 0 176px; display:flex; flex-direction:column; gap:8px; }
+  .strip.dim .mf, .strip.dim .lvl, .strip.dim .gr, .strip.dim .mini { opacity:.45; }
+  .nm { text-align:center; font-weight:700; font-size:13px; letter-spacing:.08em; text-transform:uppercase; padding:4px 0 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sb { text-align:center; font-size:10.5px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); margin-top:-3px; }
+  .sb.ok { color:var(--ok); } .sb.warn { color:var(--warn); } .sb.bad { color:var(--bad); }
+
+  .mf { display:flex; justify-content:center; gap:10px; height:200px; }
+  .scale { position:relative; width:22px; font-size:9.5px; color:var(--dim); font-variant-numeric:tabular-nums; }
+  .scale span { position:absolute; right:0; transform:translateY(50%); line-height:1; }
+  .meter { position:relative; width:16px; background:var(--inset); border-radius:3px; overflow:hidden; }
+  .meter .lv { position:absolute; inset:0; background:linear-gradient(to top, var(--ok) 0%, var(--ok) 72%, var(--warn) 86%, var(--bad) 100%); clip-path:inset(100% 0 0 0); }
+  .meter .pk { position:absolute; left:0; right:0; height:2px; background:var(--fg); opacity:.9; bottom:0; }
+  .meter .zone { position:absolute; left:0; right:0; box-shadow:inset 0 0 0 1.5px var(--teal); background:color-mix(in srgb, var(--teal) 14%, transparent); pointer-events:none; }
+  .meter .tk { position:absolute; inset:0; pointer-events:none; background-image:repeating-linear-gradient(0deg, transparent 0 calc(10% - 1px), color-mix(in srgb, var(--bg) 70%, transparent) calc(10% - 1px) 10%); }
+  .meter .clip { position:absolute; top:0; left:0; right:0; text-align:center; font-size:8px; font-weight:800; color:#fff; background:var(--bad); display:none; line-height:12px; }
+  .meter .clip.on { display:block; }
+  .nogc .zone, .nogc .hint { display:none; }
+
+  .fader { --kh:18px; position:relative; width:46px; touch-action:none; cursor:pointer; }
+  .fader::before { content:""; position:absolute; left:50%; top:0; bottom:0; width:6px; margin-left:-3px; background:var(--inset); border-radius:3px; }
+  .fader .fill { position:absolute; left:50%; bottom:0; width:6px; margin-left:-3px; background:var(--acc); opacity:.8; border-radius:3px; height:calc(var(--kh) / 2 + (100% - var(--kh)) * var(--f)); }
+  .fader .knob { position:absolute; left:3px; right:3px; height:var(--kh); top:calc((100% - var(--kh)) * (1 - var(--f))); background:var(--knob); border-radius:5px; border:1px solid var(--faint); box-shadow:0 1px 3px var(--shadow); }
+  .fader .zero { position:absolute; left:0; right:0; height:1px; background:color-mix(in srgb, var(--fg) 30%, transparent); bottom:calc(var(--kh) / 2 + (100% - var(--kh)) * var(--z)); }
+  .fader:focus-visible { outline:2px solid var(--acc); outline-offset:2px; border-radius:6px; }
+  .fader.off { opacity:.5; cursor:default; }
+
+  .lvl { text-align:center; font-size:12px; color:var(--dim); font-variant-numeric:tabular-nums; margin-top:-2px; }
+  .gr { display:grid; grid-template-columns:36px 1fr 36px; align-items:center; gap:4px; }
+  .gr .gv { text-align:center; font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .gr button { height:36px; padding:0; font-size:19px; line-height:1; }
+  .hint { display:flex; align-items:center; justify-content:center; gap:6px; flex-wrap:wrap; min-height:26px; font-size:12px; font-weight:600; color:var(--dim); text-align:center; }
+  .hint.ok { color:var(--ok); } .hint.warn { color:var(--warn); } .hint.bad { color:var(--bad); }
+  .hint .apply { background:var(--acc); color:var(--onacc); padding:3px 9px; font-size:12px; border-radius:6px; }
+
+  .mini { display:grid; grid-template-columns:30px 1fr 52px; gap:6px; align-items:center; font-size:10.5px; color:var(--dim); letter-spacing:.06em; text-transform:uppercase; }
+  .mini .mv { text-align:right; color:var(--fg); font-size:11.5px; letter-spacing:0; text-transform:none; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .rfbar { position:relative; height:8px; border-radius:2px; overflow:hidden; background:var(--inset); }
+  .rfbar i { position:absolute; inset:0; background:linear-gradient(90deg, var(--bad) 0, var(--warn) 25%, var(--ok) 55%, var(--ok) 100%); clip-path:inset(0 100% 0 0); }
+  .batt { display:flex; gap:3px; }
+  .batt i { flex:1; height:8px; border-radius:2px; background:var(--inset); }
+  .batt i.on { background:var(--ok); } .batt.low i.on { background:var(--warn); } .batt.crit i.on { background:var(--bad); }
+
+  .empty { color:var(--dim); text-align:center; padding:60px 10px; }
+
+  /* ===== settings (same layout as LivePi's Setup) ===== */
+  .setup { display:flex; gap:14px; align-items:flex-start; }
+  .side { display:flex; flex-direction:column; gap:4px; width:168px; flex:0 0 168px; position:sticky; top:64px; }
+  .side button { display:flex; align-items:center; gap:9px; text-align:left; background:transparent; color:var(--dim); font-weight:600; border-color:transparent; }
+  .side button svg { width:16px; height:16px; flex:0 0 16px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  .side button:hover { color:var(--fg); }
+  .side button.on { background:var(--card); border-color:var(--line); color:var(--acc); box-shadow:inset 3px 0 0 var(--acc); }
+  .pane { flex:1; min-width:0; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:var(--r); padding:14px; margin-bottom:14px; max-width:820px; }
+  .set { display:flex; align-items:center; gap:12px; padding:11px 0; border-top:1px solid var(--line); }
+  .card > h2 + .set, .set.first { border-top:0; }
+  .sl { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+  .sl b { font-weight:600; font-size:14px; }
+  .sl span { font-size:12px; color:var(--dim); line-height:1.35; }
+  .sl span:empty { display:none; }
+  .sc { flex:0 1 auto; display:flex; gap:6px; align-items:center; justify-content:flex-end; flex-wrap:wrap; min-width:0; }
+  .sc input.txt { width:120px; max-width:100%; }
+  .sc input.num { width:72px; text-align:center; }
+  .sc .to { font-size:12px; color:var(--dim); }
+  .sc .val { font-size:13px; color:var(--dim); font-variant-numeric:tabular-nums; text-align:right; }
+  .sc .val.ok { color:var(--ok); } .sc .val.warn { color:var(--warn); } .sc .val.bad { color:var(--bad); }
+  .chh { font-weight:700; font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--fg); padding:12px 0 0; border-top:1px solid var(--line); margin-top:6px; }
+  .chh:first-of-type { border-top:0; margin-top:0; padding-top:2px; }
+  .chh + .set { border-top:0; }
+  .pnote { max-width:820px; margin:0 0 12px; }
+  .locknote { border:1px solid var(--warn); background:color-mix(in srgb, var(--warn) 12%, transparent); border-radius:6px; padding:8px 10px; margin-bottom:12px; font-size:13px; max-width:820px; }
+
+  .toast { position:fixed; left:50%; bottom:calc(14px + env(safe-area-inset-bottom)); transform:translateX(-50%); background:var(--card); color:var(--fg); border:1px solid var(--bad);
+           padding:8px 14px; border-radius:999px; font-size:14px; display:none; z-index:50; max-width:90vw; box-shadow:0 6px 24px var(--shadow); }
+  .toast.show { display:block; }
+
+  /* lost connection: strips grayed out and not pressable until the server answers again */
+  .offbar { display:none; position:fixed; left:50%; top:calc(12px + env(safe-area-inset-top)); transform:translateX(-50%); z-index:60; background:var(--bad); color:#fff;
+            padding:10px 16px; border-radius:999px; font-weight:600; font-size:14px; box-shadow:0 6px 24px var(--shadow); align-items:center; gap:10px; white-space:nowrap; }
+  body.offline .offbar { display:flex; }
+  body.offline #tab-mix, body.offline #tab-setup { filter:grayscale(1); opacity:.4; pointer-events:none; user-select:none; }
+  .spin { width:14px; height:14px; border:2px solid #fff6; border-top-color:#fff; border-radius:50%; animation:spin .9s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  @media (max-width:720px) {
+    header { row-gap:6px; padding:8px 12px; padding-top:calc(8px + env(safe-area-inset-top)); gap:8px; }
+    header h1 { font-size:14px; } header h1 small { display:none; }
+    #status { order:3; flex:1 0 100%; }
+    .gear { order:2; } #fsBtn { margin-left:auto; order:1; }
+    h1 { order:0; }
+    #app { padding-left:10px; padding-right:10px; }
+    .strips { gap:10px; }
+    .strip { width:calc((100vw - 30px) / 2); flex-basis:calc((100vw - 30px) / 2); padding:8px; gap:7px; }
+    .mf { height:180px; gap:6px; }
+    .fader { --kh:24px; width:36px; }
+    .fader .knob { left:1px; right:1px; }
+    .setup { flex-direction:column; align-items:stretch; gap:10px; }
+    .side { flex-direction:row; width:100%; flex:none; overflow-x:auto; position:static; scrollbar-width:none; gap:6px; }
+    .side::-webkit-scrollbar { display:none; }
+    .side button { flex:0 0 auto; min-height:38px; padding:6px 14px; border-radius:999px; background:var(--card2); font-size:14px; border:0; box-shadow:none; }
+    .side button.on { background:var(--acc); color:var(--onacc); box-shadow:none; }
+    .card { padding:12px; }
+    .set { padding:10px 0; gap:10px; }
+    .sc input.txt { width:110px; font-size:16px; } .sc input.num { font-size:16px; }
+    .sc button { min-height:38px; padding:6px 12px; font-size:15px; }
+    .sc .seg button { min-height:34px; padding:4px 10px; font-size:14px; }
+  }
+  @media (max-width:380px) { .strip { width:calc((100vw - 30px) / 2); } .mini { grid-template-columns:26px 1fr 46px; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>LiveMic<small>wireless mic dashboard</small></h1>
+  <div id="status"></div>
+  <button id="fsBtn" class="gear" title="Full screen" aria-label="Full screen"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+  <button id="gear" class="gear" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span>Done</span></button>
+</header>
+<div class="offbar"><span class="spin"></span>Lost connection to the dashboard server. Retrying…</div>
+
+<div id="app">
+<section id="tab-mix">
+  <div id="alerts"></div>
+  <div id="strips" class="strips"></div>
+  <div id="empty" class="empty">Connecting…</div>
+</section>
+
+<section id="tab-setup" class="hide">
+ <div class="setup">
+  <div class="side" id="sub">
+    <button data-sub="channels" class="on"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="7" cy="18" r="2"/></svg><span>Channels</span></button>
+    <button data-sub="receivers"><svg viewBox="0 0 24 24"><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 17h.01M12 14V9M8.5 6.5a5 5 0 0 1 7 0M6 4a8.5 8.5 0 0 1 12 0"/></svg><span>Receivers</span></button>
+    <button data-sub="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg><span>Settings</span></button>
+  </div>
+  <div class="pane">
+    <div data-pane="channels"><div id="chPane"></div></div>
+    <div data-pane="receivers" class="hide"><div id="rxPane"></div></div>
+    <div data-pane="settings" class="hide">
+      <div class="note pnote">Display, gain check and alert settings are saved on this device.</div>
+      <div class="card">
+        <h2>Appearance</h2>
+        <div class="set first"><div class="sl"><b>Theme</b><span>Auto follows this device</span></div><div class="sc"><div class="seg" id="themeSeg"><button data-v="auto">Auto</button><button data-v="dark">Dark</button><button data-v="light">Light</button></div></div></div>
+      </div>
+      <div class="card">
+        <h2>Mixer</h2>
+        <div class="set first"><div class="sl"><b>Idle channels</b><span>Channels with no transmitter linked</span></div><div class="sc"><div class="seg" id="idleSeg"><button data-v="show">Show</button><button data-v="hide">Hide</button></div></div></div>
+      </div>
+      <div class="card">
+        <h2>Gain check</h2>
+        <div class="set first"><div class="sl"><b>Gain check</b><span>Optimal zone on each meter, with Low / Hot hints and a one-tap fix</span></div><div class="sc"><div class="seg" id="gcSeg"><button data-v="on">On</button><button data-v="off">Off</button></div></div></div>
+        <div class="set"><div class="sl"><b>Optimal peak range</b><span>dBFS. Loudest peaks should land inside this zone</span></div><div class="sc"><input id="optLo" class="num" type="number" inputmode="numeric" step="1" aria-label="Range low"><span class="to">to</span><input id="optHi" class="num" type="number" inputmode="numeric" step="1" aria-label="Range high"></div></div>
+        <div class="set"><div class="sl"><b>Aim for</b><span>Where the one-tap fix puts the loudest peak (dBFS)</span></div><div class="sc"><input id="aim" class="num" type="number" inputmode="numeric" step="1"></div></div>
+        <div class="set"><div class="sl"><b>Reset gain check</b><span>Back to -20 to -6 dBFS, aiming for -12</span></div><div class="sc"><button id="gcReset">Reset</button></div></div>
+      </div>
+      <div class="card">
+        <h2>Alerts</h2>
+        <div class="set first"><div class="sl"><b>Low battery</b><span>Warn under this run time, or with 1 bar left</span></div><div class="sc"><input id="alBatt" class="num" type="number" inputmode="numeric" step="5"><span class="to">min</span></div></div>
+        <div class="set"><div class="sl"><b>Weak RF</b><span>Warn when the stronger antenna is below this</span></div><div class="sc"><input id="alRf" class="num" type="number" inputmode="numeric" step="1"><span class="to">dBm</span></div></div>
+      </div>
+      <div class="card">
+        <h2>Control</h2>
+        <div class="set first"><div class="sl"><b>Changes</b><span id="ctlNote"></span></div><div class="sc"><span class="val" id="ctlVal"></span></div></div>
+        <div class="set"><div class="sl"><b>Control PIN</b><span>Set in config.json (controlPin)</span></div><div class="sc"><span class="val" id="pinVal"></span></div></div>
+      </div>
+      <div class="card">
+        <h2>About</h2>
+        <div class="set first"><div class="sl"><b>Version</b></div><div class="sc"><span class="val" id="verVal"></span></div></div>
+        <div class="set"><div class="sl"><b>Mode</b><span id="modeNote"></span></div><div class="sc"><span class="val" id="modeVal"></span></div></div>
+      </div>
+    </div>
+  </div>
+ </div>
+</section>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script src="sim.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  // ---------- constants ----------
+  var CLIP_DBFS = -1;                       // peak at/over this = clipping
+  var METER_MIN = -60, METER_MAX = 0;       // audio meter scale, dBFS
+  var RF_MIN = -100, RF_MAX = -30;          // RF meter scale, dBm
+  var GMIN = -18, GMAX = 42;                // SLX-D gain range, dB
+  var ADVISE_WINDOW_MS = 8000;
+  var SCALE_DB = [0, -6, -12, -18, -30, -60];
+  var DEFAULTS = { optLo: -20, optHi: -6, aim: -12, gainCheck: true, battMins: 30, weakRf: -85 };
+
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+  function pct(v, lo, hi) { return Math.max(0, Math.min(100, (v - lo) / (hi - lo) * 100)); }
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function fmtMins(m) { if (m == null) return '—'; var h = Math.floor(m / 60), r = Math.round(m % 60); return h ? h + 'h ' + String(r).padStart(2, '0') + 'm' : r + ' min'; }
+  function fmtGain(g) { return (g > 0 ? '+' : '') + g + ' dB'; }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function mk(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
+
+  // ---------- saved on this device ----------
+  var cfg = {}, k0;
+  for (k0 in DEFAULTS) cfg[k0] = DEFAULTS[k0];
+  try {
+    var saved = JSON.parse(localStorage.getItem('slxd-cfg') || '{}');
+    for (k0 in DEFAULTS) if (typeof saved[k0] === typeof DEFAULTS[k0]) cfg[k0] = saved[k0];
+  } catch (e) {}
+  function saveCfg() { try { localStorage.setItem('slxd-cfg', JSON.stringify(cfg)); } catch (e) {} }
+  var hideIdle = false, themePref = 'auto', subPane = 'channels';
+  try { hideIdle = localStorage.getItem('slxd-hide-idle') === '1'; } catch (e) {}
+  try { themePref = localStorage.getItem('slxd-theme') || 'auto'; } catch (e) {}
+  try { subPane = localStorage.getItem('slxd-sub') || 'channels'; } catch (e) {}
+  if (['auto', 'dark', 'light'].indexOf(themePref) < 0) themePref = 'auto';
+  if (['channels', 'receivers', 'settings'].indexOf(subPane) < 0) subPane = 'channels';
+
+  // ---------- state ----------
+  var snap = null, mode = 'connecting', sim = null, lastMsg = 0, pin = '', inSetup = false;
+  try { pin = sessionStorage.getItem('slxd-pin') || ''; } catch (e) {}
+  var strips = {}, chRefs = {}, rxRefs = {}, chSig = '', rxSig = '';
+  var stripsEl = $('#strips'), emptyEl = $('#empty'), statusEl = $('#status'), alertsEl = $('#alerts'), toastEl = $('#toast');
+
+  var toastTimer;
+  function toast(msg) {
+    toastEl.textContent = msg; toastEl.className = 'toast show';
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { toastEl.className = 'toast'; }, 3500);
+  }
+
+  // ---------- sending commands ----------
+  function send(rxId, ch, action, value, retried) {
+    if (!snap || !snap.canControl) { toast('Changes are turned off on this dashboard'); return; }
+    if (mode === 'preview') {
+      var r = sim.command(rxId, ch, action, value);
+      if (!r.ok) toast(r.error);
+      return;
+    }
+    if (snap.pinRequired && !pin) {
+      var p = prompt('Control PIN');
+      if (p == null) return;
+      pin = p; try { sessionStorage.setItem('slxd-pin', pin); } catch (e) {}
+    }
+    fetch('api/cmd', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-pin': pin },
+      body: JSON.stringify({ receiver: rxId, channel: ch, action: action, value: value })
+    }).then(function (r) { return r.json().then(function (j) { return { status: r.status, j: j }; }); })
+      .then(function (res) {
+        if (res.status === 401) {
+          pin = ''; try { sessionStorage.removeItem('slxd-pin'); } catch (e) {}
+          if (!retried) return send(rxId, ch, action, value, true);
+        }
+        if (!res.j.ok) toast(res.j.error || 'Command failed');
+      })
+      .catch(function () { toast('Could not reach the dashboard server'); });
+  }
+
+  // ---------- theme ----------
+  var mq = window.matchMedia ? matchMedia('(prefers-color-scheme: light)') : null;
+  function applyTheme() {
+    var light = themePref === 'light' || (themePref === 'auto' && mq && mq.matches);
+    document.documentElement.setAttribute('data-theme', light ? 'light' : 'dark');
+  }
+  if (mq && mq.addEventListener) mq.addEventListener('change', function () { if (themePref === 'auto') applyTheme(); });
+
+  // ---------- fader (drawn like LivePi's) ----------
+  function makeFader(onInput) {
+    var el = mk('div', 'fader', '<div class="fill"></div><div class="zero"></div><div class="knob"></div>');
+    var knob = $('.knob', el), val = 0, drag = false;
+    el.setAttribute('role', 'slider'); el.tabIndex = 0; el.setAttribute('aria-label', 'Gain');
+    el.setAttribute('aria-valuemin', GMIN); el.setAttribute('aria-valuemax', GMAX);
+    el.style.setProperty('--z', (0 - GMIN) / (GMAX - GMIN));
+    function paint() {
+      el.style.setProperty('--f', (val - GMIN) / (GMAX - GMIN));
+      el.setAttribute('aria-valuenow', val); el.setAttribute('aria-valuetext', fmtGain(val));
+    }
+    function fromY(y) {
+      var r = el.getBoundingClientRect(), kh = knob.offsetHeight || 18;
+      var f = 1 - (y - r.top - kh / 2) / Math.max(1, r.height - kh);
+      return clamp(Math.round(GMIN + f * (GMAX - GMIN)), GMIN, GMAX);
+    }
+    function user(v) { if (v !== val) { val = v; paint(); onInput(v); } }
+    el.addEventListener('pointerdown', function (e) { if (el.classList.contains('off')) return; drag = true; el.setPointerCapture(e.pointerId); user(fromY(e.clientY)); e.preventDefault(); });
+    el.addEventListener('pointermove', function (e) { if (drag) user(fromY(e.clientY)); });
+    el.addEventListener('pointerup', function () { drag = false; });
+    el.addEventListener('pointercancel', function () { drag = false; });
+    el.addEventListener('keydown', function (e) {
+      var d = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1, PageUp: 5, PageDown: -5 }[e.key];
+      if (d) { user(clamp(val + d, GMIN, GMAX)); e.preventDefault(); }
+    });
+    return { el: el, set: function (v) { val = v; paint(); }, get: function () { return val; } };
+  }
+
+  // ---------- strips (the mixer view) ----------
+  function buildStrip(rx, c) {
+    var el = mk('article', 'strip');
+    el.innerHTML =
+      '<div class="nm"></div><div class="sb"></div>' +
+      '<div class="mf"><div class="scale">' + SCALE_DB.map(function (d) { return '<span style="bottom:' + pct(d, METER_MIN, METER_MAX) + '%">' + d + '</span>'; }).join('') + '</div>' +
+        '<div class="meter"><div class="lv"></div><div class="zone"></div><div class="tk"></div><div class="pk"></div><div class="clip">CLIP</div></div></div>' +
+      '<div class="lvl">—</div>' +
+      '<div class="gr"><button class="gdn" aria-label="Gain down 1 dB">−</button><div class="gv"></div><button class="gup" aria-label="Gain up 1 dB">+</button></div>' +
+      '<div class="hint"></div>' +
+      '<div class="mini"><span>RF</span><div class="rfbar"><i></i></div><span class="mv rv">—</span></div>' +
+      '<div class="mini"><span>Batt</span><div class="batt"><i></i><i></i><i></i><i></i><i></i></div><span class="mv bv">—</span></div>';
+    var k = {
+      el: el, rx: rx.id, ch: c.ch, nm: $('.nm', el), sb: $('.sb', el), lv: $('.lv', el), pk: $('.pk', el), zone: $('.zone', el), clip: $('.clip', el),
+      lvl: $('.lvl', el), gv: $('.gv', el), hint: $('.hint', el), rfbar: $('.rfbar i', el), rv: $('.rv', el), batt: $('.batt', el), bv: $('.bv', el),
+      peakHold: -120, peakAt: 0, clipUntil: 0, holdUntil: 0, pkHist: [], hintHtml: '', cur: ''
+    };
+    var gTimer;
+    function gainChanged(v) {
+      k.holdUntil = Date.now() + 900; k.gv.textContent = fmtGain(v); k.pkHist = [];
+      clearTimeout(gTimer); gTimer = setTimeout(function () { send(k.rx, k.ch, 'gain', v); }, 150);
+    }
+    k.fader = makeFader(gainChanged);
+    $('.mf', el).appendChild(k.fader.el);
+    k.setGain = function (v) { v = clamp(v, GMIN, GMAX); k.fader.set(v); gainChanged(v); };
+    $('.gdn', el).onclick = function () { k.setGain(k.fader.get() - 1); };
+    $('.gup', el).onclick = function () { k.setGain(k.fader.get() + 1); };
+    k.hint.addEventListener('click', function (e) {
+      var t = e.target.closest('.apply');
+      if (t) k.setGain(k.fader.get() + (+t.dataset.delta));
+    });
+    paintZone(k);
+    return k;
+  }
+  function paintZone(k) {
+    var lo = pct(cfg.optLo, METER_MIN, METER_MAX), hi = pct(cfg.optHi, METER_MIN, METER_MAX);
+    k.zone.style.bottom = lo + '%'; k.zone.style.height = (hi - lo) + '%';
+  }
+
+  function applyBtn(delta) {
+    delta = Math.round(delta);
+    if (!delta) return '';
+    return ' <button class="apply" type="button" data-delta="' + delta + '">' + (delta > 0 ? '+' : '') + delta + ' dB</button>';
+  }
+  // Sound-check helper: watches the loudest peak of the last few seconds and says
+  // whether the gain sits in the optimal zone, with a one-tap fix.
+  function advise(k, c, now) {
+    k.pkHist.push([now, c.peak]);
+    while (k.pkHist.length && now - k.pkHist[0][0] > ADVISE_WINDOW_MS) k.pkHist.shift();
+    var cls = 'hint', html = '';
+    if (cfg.gainCheck && c.tx) {
+      var max = -120;
+      for (var i = 0; i < k.pkHist.length; i++) if (k.pkHist[i][1] > max) max = k.pkHist[i][1];
+      if (max < -50) html = 'Waiting for signal…';
+      else if (max >= CLIP_DBFS) { cls += ' bad'; html = 'Clipping' + applyBtn(cfg.aim - max); }
+      else if (max > cfg.optHi) { cls += ' warn'; html = 'Hot' + applyBtn(cfg.aim - max); }
+      else if (max < cfg.optLo) { cls += ' warn'; html = 'Low' + applyBtn(cfg.aim - max); }
+      else { cls += ' ok'; html = 'In range'; }
+    }
+    if (k.hint.className !== cls) k.hint.className = cls;
+    if (k.hintHtml !== html) { k.hintHtml = html; k.hint.innerHTML = html; }
+  }
+
+  function problems(rx, c) {
+    var p = [];
+    if (!rx.online || !c.tx) return p;
+    if (c.peak >= CLIP_DBFS) p.push({ lvl: 'bad', t: 'Clipping' });
+    if (c.battBars != null && (c.battBars <= 1 || (c.battMins != null && c.battMins < cfg.battMins))) p.push({ lvl: c.battBars === 0 ? 'bad' : 'warn', t: 'Low battery' });
+    if (Math.max(c.rssiA, c.rssiB) < cfg.weakRf) p.push({ lvl: 'warn', t: 'Weak RF' });
+    return p;
+  }
+
+  // ---------- render ----------
+  function render(s) {
+    snap = s; lastMsg = Date.now();
+    document.body.classList.remove('offline');
+    var now = Date.now(), seen = {}, alerts = [], total = 0, visible = 0, online = 0;
+
+    s.receivers.forEach(function (rx) {
+      if (rx.status === 'ok') online++;
+      if (rx.status === 'no-data') alerts.push({ lvl: 'bad', text: rx.name + ': no data from receiver' });
+      else if (!rx.online && rx.status !== 'connecting') alerts.push({ lvl: 'bad', text: rx.name + ' offline' });
+
+      rx.channels.forEach(function (c) {
+        var key = rx.id + ':' + c.ch; seen[key] = true; total++;
+        var k = strips[key];
+        if (!k) { k = strips[key] = buildStrip(rx, c); stripsEl.appendChild(k.el); }
+
+        var pr = problems(rx, c);
+        pr.forEach(function (p) { alerts.push({ lvl: p.lvl, text: c.name + ': ' + p.t }); });
+
+        k.cur = c.name;
+        k.nm.textContent = c.name || ('Ch ' + c.ch);
+        k.el.title = rx.name + ' · Ch ' + c.ch + (c.freq ? ' · ' + c.freq.toFixed(3) + ' MHz' : '');
+
+        var b, cls;
+        if (!rx.online) { b = rx.status === 'no-data' ? 'No data' : 'Offline'; cls = 'bad'; }
+        else if (!c.tx) { b = 'No TX'; cls = ''; }
+        else if (pr.length) { b = pr[0].t; cls = pr[0].lvl; }
+        else { b = 'Linked'; cls = 'ok'; }
+        k.sb.textContent = b; k.sb.className = 'sb ' + cls;
+        k.el.classList.toggle('dim', !rx.online || !c.tx);
+        var hide = hideIdle && (!c.tx || !rx.online);
+        k.el.classList.toggle('hide', hide);
+        if (!hide) visible++;
+
+        // audio
+        if (c.peak > k.peakHold || now - k.peakAt > 1500) { k.peakHold = c.peak; k.peakAt = now; }
+        if (c.tx && c.peak >= CLIP_DBFS) k.clipUntil = now + 3000;
+        k.lv.style.clipPath = 'inset(' + (100 - pct(c.tx ? c.rms : METER_MIN, METER_MIN, METER_MAX)) + '% 0 0 0)';
+        k.pk.style.bottom = pct(k.peakHold, METER_MIN, METER_MAX) + '%';
+        k.pk.style.display = c.tx ? '' : 'none';
+        k.lvl.textContent = c.tx ? c.rms + ' dBFS' : '—';
+        k.clip.classList.toggle('on', now < k.clipUntil);
+        advise(k, c, now);
+
+        // RF (stronger antenna) and battery
+        var best = Math.max(c.rssiA, c.rssiB);
+        k.rfbar.style.clipPath = 'inset(0 ' + (100 - pct(c.tx ? best : RF_MIN, RF_MIN, RF_MAX)) + '% 0 0)';
+        k.rv.textContent = c.tx ? best + ' dBm' : '—';
+        var bars = c.tx ? c.battBars : null, items = k.batt.children;
+        for (var i = 0; i < 5; i++) items[i].className = bars != null && i < bars ? 'on' : '';
+        k.batt.className = 'batt' + (bars != null && bars <= 1 ? ' crit' : bars != null && bars <= 2 ? ' low' : '');
+        k.bv.textContent = c.tx ? fmtMins(c.battMins) : '—';
+
+        // gain (don't fight the user's finger)
+        if (now > k.holdUntil) { k.fader.set(c.gain); k.gv.textContent = fmtGain(c.gain); }
+        k.fader.el.classList.toggle('off', !s.canControl);
+        $('.gdn', k.el).disabled = $('.gup', k.el).disabled = !s.canControl;
+      });
+    });
+
+    Object.keys(strips).forEach(function (key) { if (!seen[key]) { strips[key].el.remove(); delete strips[key]; } });
+    stripsEl.classList.toggle('nogc', !cfg.gainCheck);
+    emptyEl.classList.toggle('hide', visible > 0);
+    emptyEl.textContent = !total ? 'No receivers configured.' : 'No transmitters linked. Idle channels are hidden (Settings > Mixer).';
+
+    renderStatus(s, online);
+    alertsEl.innerHTML = alerts.slice(0, 8).map(function (a) { return '<span class="st ' + a.lvl + '"><span class="dot ' + a.lvl + '"></span>' + esc(a.text) + '</span>'; }).join('');
+    if (inSetup) updateSettings(s);
+  }
+
+  function renderStatus(s, online) {
+    var parts = [], n = s.receivers.length;
+    var bad = s.receivers.filter(function (r) { return r.status !== 'ok'; });
+    if (!bad.length) parts.push('<span class="st"><span class="dot ok"></span>' + n + ' receiver' + (n === 1 ? '' : 's') + ' online</span>');
+    else bad.slice(0, 2).forEach(function (r) {
+      var c = r.status === 'connecting' ? 'warn' : 'bad';
+      parts.push('<span class="st ' + c + '"><span class="dot ' + c + '"></span>' + esc(r.name) + ' ' + (r.status === 'connecting' ? 'connecting' : r.status === 'no-data' ? 'no data' : 'offline') + '</span>');
+    });
+    if (bad.length > 2) parts.push('<span class="st bad">+' + (bad.length - 2) + ' more</span>');
+    if (s.demo === 'preview') parts.push('<span class="st warn">Preview, simulated</span>');
+    else if (s.demo) parts.push('<span class="st warn">Demo, simulated</span>');
+    var html = parts.join('');
+    if (statusEl._h !== html) { statusEl._h = html; statusEl.innerHTML = html; }
+  }
+
+  // ---------- settings: Channels ----------
+  function syncInput(inp, val) {
+    if (document.activeElement === inp || inp._dirty || Date.now() < (inp._hold || 0)) return;
+    if (inp.value !== val) inp.value = val;
+  }
+  function buildChannels(s) {
+    var root = $('#chPane'); root.innerHTML = ''; chRefs = {};
+    var note = mk('div', 'locknote hide', 'Changes are turned off on this dashboard (read-only in config.json).'); note.id = 'roNote'; root.appendChild(note);
+    s.receivers.forEach(function (rx) {
+      var card = mk('div', 'card', '<h2>' + esc(rx.name) + '</h2>');
+      rx.channels.forEach(function (c) {
+        var key = rx.id + ':' + c.ch;
+        var head = mk('div', 'chh', 'Channel ' + c.ch);
+        var rName = mk('div', 'set', '<div class="sl"><b>Name</b><span>Up to 8 characters, shown on the receiver and here</span></div><div class="sc"><input class="txt nmI" maxlength="8" spellcheck="false" autocomplete="off" aria-label="Name"><button class="nmB">Set</button></div>');
+        var rOut = mk('div', 'set', '<div class="sl"><b>Output level</b><span>Mic or line level at the receiver\'s output</span></div><div class="sc"><div class="seg"><button data-o="MIC">Mic</button><button data-o="LINE">Line</button></div></div>');
+        var rFr = mk('div', 'set', '<div class="sl"><b>Frequency</b><span>MHz. The transmitter drops until it is IR-synced again</span></div><div class="sc"><input class="txt frI" inputmode="decimal" autocomplete="off" aria-label="Frequency in MHz"><button class="frB">Set</button></div>');
+        card.appendChild(head); card.appendChild(rName); card.appendChild(rOut); card.appendChild(rFr);
+        var r = chRefs[key] = { rx: rx.id, ch: c.ch, head: head, nameI: $('.nmI', rName), nameB: $('.nmB', rName), outB: $$('.seg button', rOut), freqI: $('.frI', rFr), freqB: $('.frB', rFr) };
+        [r.nameI, r.freqI].forEach(function (i) { i.addEventListener('input', function () { i._dirty = true; }); });
+        function setName() {
+          var v = r.nameI.value.trim();
+          if (!v) { toast('Name cannot be empty'); return; }
+          r.nameI._dirty = false; r.nameI._hold = Date.now() + 2000; send(r.rx, r.ch, 'name', v);
+        }
+        r.nameB.onclick = setName;
+        r.nameI.addEventListener('keydown', function (e) { if (e.key === 'Enter') setName(); });
+        r.outB.forEach(function (b) { b.onclick = function () { send(r.rx, r.ch, 'output', b.dataset.o); }; });
+        function setFreq() {
+          var n = parseFloat(String(r.freqI.value).replace(',', '.'));
+          if (!isFinite(n)) { toast('Enter the frequency in MHz, for example 606.025'); return; }
+          if (!confirm('Change ' + (r.nameI.value || 'this channel') + ' to ' + n.toFixed(3) + ' MHz?\n\nThe transmitter will lose its link until it is IR-synced to the new frequency.')) return;
+          r.freqI._dirty = false; r.freqI._hold = Date.now() + 2000; send(r.rx, r.ch, 'freq', n);
+        }
+        r.freqB.onclick = setFreq;
+        r.freqI.addEventListener('keydown', function (e) { if (e.key === 'Enter') setFreq(); });
+      });
+      root.appendChild(card);
+    });
+  }
+  function updateChannels(s) {
+    var sig = s.receivers.map(function (r) { return r.id + ':' + r.channels.length; }).join('|');
+    if (sig !== chSig) { chSig = sig; buildChannels(s); }
+    $('#roNote').classList.toggle('hide', !!s.canControl);
+    s.receivers.forEach(function (rx) {
+      rx.channels.forEach(function (c) {
+        var r = chRefs[rx.id + ':' + c.ch]; if (!r) return;
+        r.head.textContent = 'Channel ' + c.ch + (c.name ? ' · ' + c.name : '');
+        syncInput(r.nameI, c.name);
+        syncInput(r.freqI, c.freq ? c.freq.toFixed(3) : '');
+        r.outB.forEach(function (b) { b.classList.toggle('on', b.dataset.o === c.out); });
+        [r.nameI, r.nameB, r.freqI, r.freqB].forEach(function (e) { e.disabled = !s.canControl || !rx.online; });
+        r.outB.forEach(function (b) { b.disabled = !s.canControl || !rx.online; });
+      });
+    });
+  }
+
+  // ---------- settings: Receivers (read-only diagnostics) ----------
+  function buildReceivers(s) {
+    var root = $('#rxPane'); root.innerHTML = ''; rxRefs = {};
+    s.receivers.forEach(function (rx) {
+      var card = mk('div', 'card', '<h2>' + esc(rx.name) + '</h2>');
+      var conn = mk('div', 'set first', '<div class="sl"><b>Connection</b><span class="addr"></span></div><div class="sc"><span class="val cst"></span></div>');
+      var mdl = mk('div', 'set', '<div class="sl"><b>Model</b><span>Firmware</span></div><div class="sc"><span class="val mdl"></span></div>');
+      card.appendChild(conn); card.appendChild(mdl);
+      var r = rxRefs[rx.id] = { addr: $('.addr', conn), cst: $('.cst', conn), mdl: $('.mdl', mdl), mdlSub: $('.sl span', mdl), ch: {} };
+      rx.channels.forEach(function (c) {
+        var row = mk('div', 'set', '<div class="sl"><b></b><span></span></div>');
+        card.appendChild(row); r.ch[c.ch] = { b: $('b', row), s: $('span', row) };
+      });
+      r.help = mk('div', 'note hide', 'Connected but no data. On the receiver, open Advanced Settings > Controller Access and set it to Allow.');
+      r.help.style.paddingTop = '8px'; card.appendChild(r.help);
+      root.appendChild(card);
+    });
+    var foot = mk('div', 'note pnote', 'Receivers are listed in config.json on the machine running the dashboard.');
+    root.appendChild(foot);
+  }
+  function updateReceivers(s) {
+    var sig = s.receivers.map(function (r) { return r.id + ':' + r.channels.length; }).join('|');
+    if (sig !== rxSig) { rxSig = sig; buildReceivers(s); }
+    s.receivers.forEach(function (rx) {
+      var r = rxRefs[rx.id]; if (!r) return;
+      r.addr.textContent = rx.host;
+      var txt = { ok: 'Online', connecting: 'Connecting…', offline: 'Offline', 'no-data': 'No data' }[rx.status] || rx.status;
+      r.cst.textContent = txt; r.cst.className = 'val cst ' + (rx.status === 'ok' ? 'ok' : rx.status === 'connecting' ? 'warn' : 'bad');
+      r.mdl.textContent = rx.model || '—'; r.mdlSub.textContent = rx.fw ? 'Firmware ' + rx.fw : 'Firmware';
+      r.help.classList.toggle('hide', rx.status !== 'no-data');
+      rx.channels.forEach(function (c) {
+        var o = r.ch[c.ch]; if (!o) return;
+        o.b.textContent = 'Ch ' + c.ch + (c.name ? ' · ' + c.name : '');
+        o.s.textContent = !rx.online ? 'No data' : c.tx
+          ? 'RF A ' + c.rssiA + ' dBm · B ' + c.rssiB + ' dBm · quality ' + c.quality + (c.txModel ? ' · ' + c.txModel : '') + (c.group ? ' · group ' + c.group : '')
+          : 'No transmitter linked';
+      });
+    });
+  }
+
+  // ---------- settings: Settings pane ----------
+  function paintSegs(id, val) { $$('#' + id + ' button').forEach(function (b) { b.classList.toggle('on', b.dataset.v === val); }); }
+  function paintSettings() {
+    paintSegs('themeSeg', themePref); paintSegs('idleSeg', hideIdle ? 'hide' : 'show'); paintSegs('gcSeg', cfg.gainCheck ? 'on' : 'off');
+    [['optLo', cfg.optLo], ['optHi', cfg.optHi], ['aim', cfg.aim], ['alBatt', cfg.battMins], ['alRf', cfg.weakRf]].forEach(function (p) {
+      var i = $('#' + p[0]); if (document.activeElement !== i) i.value = p[1];
+    });
+    ['optLo', 'optHi', 'aim'].forEach(function (id) { $('#' + id).disabled = !cfg.gainCheck; });
+    $('#gcReset').disabled = !cfg.gainCheck;
+  }
+  function updateSettings(s) {
+    if (subPane === 'channels') updateChannels(s);
+    else if (subPane === 'receivers') updateReceivers(s);
+    else {
+      $('#ctlVal').textContent = s.canControl ? 'Allowed' : 'Read-only';
+      $('#ctlNote').textContent = s.canControl ? 'Gain, name, output level and frequency can be changed' : 'Turned off in config.json (readOnly)';
+      $('#pinVal').textContent = s.pinRequired ? 'Required' : 'Not set';
+      $('#pinVal').className = 'val ' + (s.pinRequired ? 'ok' : 'warn');
+      $('#verVal').textContent = s.version || '';
+      var m = s.demo === 'preview' ? 'Preview' : s.demo ? 'Demo' : 'Live';
+      $('#modeVal').textContent = m;
+      $('#modeNote').textContent = m === 'Live' ? 'Talking to your receivers' : m === 'Demo' ? 'Simulated receivers. Add yours to config.json to go live' : 'Simulated. No dashboard server was found at this address';
+    }
+  }
+  function onCfgChanged() {
+    saveCfg(); paintSettings();
+    Object.keys(strips).forEach(function (key) { paintZone(strips[key]); strips[key].pkHist = []; });
+    if (snap) render(snap);
+  }
+  function bindNum(id, key, lo, hi, after) {
+    var inp = $('#' + id);
+    inp.addEventListener('change', function () {
+      var v = parseInt(inp.value, 10), old = cfg[key];
+      if (!isFinite(v) || v < lo || v > hi) { toast('Enter a number from ' + lo + ' to ' + hi); paintSettings(); return; }
+      cfg[key] = v;
+      var err = after && after();
+      if (err) { cfg[key] = old; toast(err); paintSettings(); return; }
+      cfg.aim = clamp(cfg.aim, cfg.optLo, cfg.optHi);
+      onCfgChanged();
+    });
+  }
+  function rangeOk() { return cfg.optHi - cfg.optLo >= 3 ? '' : 'The zone needs to be at least 3 dB wide'; }
+  bindNum('optLo', 'optLo', -60, -4, rangeOk);
+  bindNum('optHi', 'optHi', -57, -1, rangeOk);
+  bindNum('aim', 'aim', -60, -1, function () { return cfg.aim >= cfg.optLo && cfg.aim <= cfg.optHi ? '' : 'Aim for a level inside the optimal range'; });
+  bindNum('alBatt', 'battMins', 5, 120);
+  bindNum('alRf', 'weakRf', -110, -40);
+  $('#gcReset').onclick = function () { cfg.optLo = DEFAULTS.optLo; cfg.optHi = DEFAULTS.optHi; cfg.aim = DEFAULTS.aim; onCfgChanged(); };
+  $$('#themeSeg button').forEach(function (b) { b.onclick = function () { themePref = b.dataset.v; try { localStorage.setItem('slxd-theme', themePref); } catch (e) {} applyTheme(); paintSettings(); }; });
+  $$('#idleSeg button').forEach(function (b) { b.onclick = function () { hideIdle = b.dataset.v === 'hide'; try { localStorage.setItem('slxd-hide-idle', hideIdle ? '1' : '0'); } catch (e) {} paintSettings(); if (snap) render(snap); }; });
+  $$('#gcSeg button').forEach(function (b) { b.onclick = function () { cfg.gainCheck = b.dataset.v === 'on'; onCfgChanged(); }; });
+
+  // ---------- settings button + side navigation ----------
+  var gear = $('#gear');
+  function showSub(name) {
+    subPane = name; try { localStorage.setItem('slxd-sub', name); } catch (e) {}
+    $$('#sub button').forEach(function (b) { b.classList.toggle('on', b.dataset.sub === name); });
+    $$('[data-pane]').forEach(function (p) { p.classList.toggle('hide', p.dataset.pane !== name); });
+    if (name === 'settings') paintSettings();
+    if (snap) updateSettings(snap);
+  }
+  $$('#sub button').forEach(function (b) { b.onclick = function () { showSub(b.dataset.sub); }; });
+  function showTab(setup) {
+    inSetup = setup;
+    $('#tab-mix').classList.toggle('hide', setup); $('#tab-setup').classList.toggle('hide', !setup);
+    gear.classList.toggle('on', setup); gear.title = setup ? 'Back to the mixer' : 'Settings';
+    if (setup) showSub(subPane);
+    window.scrollTo(0, 0);
+  }
+  gear.onclick = function () { showTab(!inSetup); };
+
+  // full screen (hidden where the browser can't, or when installed as an app)
+  (function () {
+    var root = document.documentElement, d = document, btn = $('#fsBtn');
+    var can = !!(root.requestFullscreen || root.webkitRequestFullscreen);
+    var standalone = matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || navigator.standalone;
+    if (!can || standalone) { btn.classList.add('hide'); return; }
+    btn.onclick = function () {
+      if (d.fullscreenElement || d.webkitFullscreenElement) (d.exitFullscreen || d.webkitExitFullscreen).call(d);
+      else { var r = (root.requestFullscreen || root.webkitRequestFullscreen).call(root); if (r && r.catch) r.catch(function () {}); }
+    };
+  })();
+
+  // ---------- data source: the bridge (live stream) or a built-in preview ----------
+  function startBridge(first) {
+    mode = 'bridge';
+    render(first);
+    var es = new EventSource('events');
+    es.onmessage = function (e) { render(JSON.parse(e.data)); };
+    setInterval(function () { if (Date.now() - lastMsg > 3500) document.body.classList.add('offline'); }, 1000);
+  }
+  function startPreview() {
+    mode = 'preview';
+    sim = SlxSim.create();
+    function frame() { sim.tick(0.25); var s = sim.snapshot(); s.demo = 'preview'; s.canControl = true; s.pinRequired = false; s.version = '0.3.1'; render(s); }
+    frame(); setInterval(frame, 250);
+  }
+
+  applyTheme(); paintSettings();
+  var ctl = new AbortController();
+  var to = setTimeout(function () { ctl.abort(); }, 2500);
+  fetch('api/state', { cache: 'no-store', signal: ctl.signal })
+    .then(function (r) { if (!r.ok) throw new Error('no bridge'); return r.json(); })
+    .then(function (s) { clearTimeout(to); startBridge(s); })
+    .catch(function () { clearTimeout(to); startPreview(); });
+})();
+</script>
+</body>
+</html>
