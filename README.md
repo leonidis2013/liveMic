@@ -2,7 +2,7 @@
 
 Web dashboard for monitoring and controlling Shure SLX-D receivers (SLXD4 and SLXD4D) from any browser on your network. Part of the Live series.
 
-Version 0.3.1
+Version 0.4.0
 
 ## The mixer
 
@@ -26,31 +26,39 @@ SLX-D's published command strings do not include a mute command, so there is no 
 
 Browsers cannot open raw TCP connections, so a small bridge (`server.js`) connects to each receiver on port 2202 and serves the dashboard. No packages to install; Node 18 or newer.
 
+## Set it up from the web page
+
+Nothing needs editing by hand. Open the dashboard and go to **Settings (gear) > Receivers**:
+
+- **Search the network** looks for SLX-D receivers in an address range (it suggests your own network, for example `192.168.1.0/24`; type another range if your receivers are on a different network or VLAN). It tries port 2202 on every address, then asks each device that answers for its model, firmware and name. Tap **Add** on a receiver, or **Add all**. If a device has port 2202 open but does not answer, it is flagged: on the receiver, set Advanced Settings > Controller Access to Allow, then search again.
+- **Add by address** adds a receiver by IP address or host name.
+- Each receiver can be renamed, moved to a new address, switched between 1, 2 or 4 channels, or removed.
+- **Settings > Control** sets a control PIN (stored hashed) and a read-only mode.
+
+Changes apply right away and are saved to the config file. The search only looks at private network addresses, at most 1,024 at a time.
+
 ## Run it with Docker
 
 Images for PC/server (amd64) and Raspberry Pi (arm64) are built by GitHub Actions and published to `ghcr.io/leonidis2013/livemic`.
 
 ```
-mkdir livemic && cd livemic
-mkdir data && curl -o data/config.json https://raw.githubusercontent.com/leonidis2013/LiveMic/main/config.example.json
-# edit data/config.json: put in your receivers' IP addresses
 curl -O https://raw.githubusercontent.com/leonidis2013/LiveMic/main/docker-compose.yml
 docker compose up -d
 ```
 
-Then open `http://<that machine's IP>:8080`. Without `data/config.json` it starts in demo mode with simulated receivers.
+Then open `http://<that machine's IP>:8080` and use Settings > Receivers > Search. Your settings are kept in a Docker volume, so they survive updates.
 
 - Update: `docker compose pull && docker compose up -d`
 - Logs: `docker compose logs -f`
 - Build it yourself instead: `docker compose up -d --build`
-- The container only makes outbound connections to the receivers (port 2202), so the default Docker network is fine. The machine running it needs a route to the receivers' network.
+- The container only makes outbound connections to the receivers (port 2202). The machine running it needs a route to the receivers' network.
 - If the pull is refused, open the package on GitHub (Packages on the repo's page) and set its visibility to Public.
 
 ## Run it without Docker
 
 1. Install Node.js on an always-on machine on the same network as the receivers (a Raspberry Pi is a good fit).
-2. Try it with fake data: `node server.js --demo`, then open `http://<that machine's IP>:8080`.
-3. Go live: copy `config.example.json` to `config.json`, put in your receivers' IP addresses, then `node server.js`.
+2. Start it with `node server.js` (or `node server.js --demo` to look around with simulated receivers), then open `http://<that machine's IP>:8080`.
+3. Settings are saved to `config.json` next to `server.js`. Set the `CONFIG` environment variable to keep it somewhere else.
 
 To run at boot on a Pi, create `/etc/systemd/system/livemic.service`:
 
@@ -75,12 +83,12 @@ Then `sudo systemctl enable --now livemic`.
 
 Set **Advanced Settings > Controller Access** to **Allow**. SLX-D blocks third-party control by default, and LiveMic shows "no data" until you do. Give each receiver a fixed IP address (or a DHCP reservation).
 
-## config.json
+## config.json (optional)
 
-`controlPin` (if set, changes need this PIN), `readOnly` (true = monitoring only), `meterMs` (update interval, default 250), `port` (not used in Docker; the container always listens on 8080, map it with `ports`), and the `receivers` list (`name`, `host`, `channels`: 1 for SLXD4, 2 for SLXD4D).
+Everything below is normally written for you by the web page. You can also edit it by hand while LiveMic is stopped: `receivers` (`name`, `host`, `channels`), `readOnly`, `meterMs` (update interval, default 250), and `demo` (true = simulated receivers). `controlPin` in plain text still works, but setting the PIN in the web page stores it hashed. The port comes from the `PORT` environment variable (default 8080); in Docker, map it with `ports`.
 
-Anyone on the network can open the dashboard. Set `controlPin` so only people who know it can change settings.
+Anyone on the network can open the dashboard. Set a control PIN so only people who know it can change settings.
 
 ## Tests
 
-`npm test` runs the bridge against a fake SLX-D that speaks the same command strings. It checks parsing, the gain offset, metering conversion, and the exact commands sent. It has not been run against real hardware yet; the command strings follow Shure's published SLX-D document.
+`npm test` runs the bridge against a fake SLX-D that speaks the same command strings. It checks parsing, the gain offset, metering conversion, the exact commands sent, the network search, and adding, editing and removing receivers and the PIN from the web. It has not been run against real hardware yet; the command strings follow Shure's published SLX-D document.

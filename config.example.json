@@ -1,11 +1,8 @@
 {
-  "port": 8080,
-  "controlPin": "",
-  "readOnly": false,
+  "_note": "Optional. LiveMic creates and updates this file itself from the web page (Settings > Receivers). Edit by hand only while LiveMic is stopped.",
   "meterMs": 250,
+  "readOnly": false,
   "receivers": [
-    { "id": "rx1", "name": "Stage Left", "host": "192.168.1.51", "channels": 2 },
-    { "id": "rx2", "name": "Stage Right", "host": "192.168.1.52", "channels": 2 },
-    { "id": "rx3", "name": "Choir", "host": "192.168.1.53", "channels": 1 }
+    { "name": "Church Rack", "host": "192.168.1.50", "channels": 2 }
   ]
 }

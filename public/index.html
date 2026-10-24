@@ -123,6 +123,8 @@
   .sc { flex:0 1 auto; display:flex; gap:6px; align-items:center; justify-content:flex-end; flex-wrap:wrap; min-width:0; }
   .sc input.txt { width:120px; max-width:100%; }
   .sc input.num { width:72px; text-align:center; }
+  .sc input.wide { width:170px; max-width:100%; }
+  button.danger { color:var(--bad); }
   .sc .to { font-size:12px; color:var(--dim); }
   .sc .val { font-size:13px; color:var(--dim); font-variant-numeric:tabular-nums; text-align:right; }
   .sc .val.ok { color:var(--ok); } .sc .val.warn { color:var(--warn); } .sc .val.bad { color:var(--bad); }
@@ -163,7 +165,7 @@
     .side button.on { background:var(--acc); color:var(--onacc); box-shadow:none; }
     .card { padding:12px; }
     .set { padding:10px 0; gap:10px; }
-    .sc input.txt { width:110px; font-size:16px; } .sc input.num { font-size:16px; }
+    .sc input.txt { width:110px; font-size:16px; } .sc input.num { font-size:16px; } .sc input.wide { width:140px; font-size:16px; }
     .sc button { min-height:38px; padding:6px 12px; font-size:15px; }
     .sc .seg button { min-height:34px; padding:4px 10px; font-size:14px; }
   }
@@ -184,7 +186,7 @@
 <section id="tab-mix">
   <div id="alerts"></div>
   <div id="strips" class="strips"></div>
-  <div id="empty" class="empty">Connecting…</div>
+  <div id="empty" class="empty"><div id="emptyMsg">Connecting…</div><button id="emptyBtn" class="on hide" style="margin-top:14px">Find receivers</button></div>
 </section>
 
 <section id="tab-setup" class="hide">
@@ -196,7 +198,25 @@
   </div>
   <div class="pane">
     <div data-pane="channels"><div id="chPane"></div></div>
-    <div data-pane="receivers" class="hide"><div id="rxPane"></div></div>
+    <div data-pane="receivers" class="hide">
+      <div id="rxNote" class="locknote hide"></div>
+      <div id="rxMgmt">
+        <div class="card">
+          <h2>Find receivers</h2>
+          <div class="set first"><div class="sl"><b>Search the network</b><span>Looks for SLX-D receivers in this address range</span></div><div class="sc"><input id="scRange" class="txt wide" list="scList" placeholder="192.168.1.0/24" spellcheck="false" autocomplete="off" aria-label="Address range"><datalist id="scList"></datalist><button id="scGo" class="on">Search</button></div></div>
+          <div id="scStatus" class="note hide" style="padding:2px 0 6px"></div>
+          <div id="scResults"></div>
+        </div>
+        <div class="card">
+          <h2>Add by address</h2>
+          <div class="set first"><div class="sl"><b>Address</b><span>IP address or host name of the receiver</span></div><div class="sc"><input id="adHost" class="txt wide" placeholder="192.168.1.51" spellcheck="false" autocomplete="off" aria-label="Receiver address"></div></div>
+          <div class="set"><div class="sl"><b>Name</b><span>Optional</span></div><div class="sc"><input id="adName" class="txt wide" maxlength="24" autocomplete="off" aria-label="Receiver name"></div></div>
+          <div class="set"><div class="sl"><b>Channels</b><span>SLXD4: 1 &middot; SLXD4D: 2 &middot; SLXD4Q: 4</span></div><div class="sc"><div class="seg" id="adCh"><button data-v="1">1</button><button data-v="2" class="on">2</button><button data-v="4">4</button></div></div></div>
+          <div class="set"><div class="sl"></div><div class="sc"><button id="adGo" class="on">Add receiver</button></div></div>
+        </div>
+      </div>
+      <div id="rxPane"></div>
+    </div>
     <div data-pane="settings" class="hide">
       <div class="note pnote">Display, gain check and alert settings are saved on this device.</div>
       <div class="card">
@@ -221,8 +241,9 @@
       </div>
       <div class="card">
         <h2>Control</h2>
-        <div class="set first"><div class="sl"><b>Changes</b><span id="ctlNote"></span></div><div class="sc"><span class="val" id="ctlVal"></span></div></div>
-        <div class="set"><div class="sl"><b>Control PIN</b><span>Set in config.json (controlPin)</span></div><div class="sc"><span class="val" id="pinVal"></span></div></div>
+        <div id="ctlNote" class="locknote hide"></div>
+        <div class="set first"><div class="sl"><b>Changes</b><span>Read-only turns off gain, names, output level and frequency for everyone</span></div><div class="sc"><div class="seg" id="roSeg"><button data-v="allow">Allowed</button><button data-v="ro">Read-only</button></div></div></div>
+        <div class="set"><div class="sl"><b>Control PIN</b><span id="pinNote"></span></div><div class="sc"><input id="pinNew" class="txt" type="password" autocomplete="new-password" placeholder="New PIN" aria-label="New PIN"><button id="pinSet" class="on">Set</button><button id="pinRm" class="danger hide">Remove</button></div></div>
       </div>
       <div class="card">
         <h2>About</h2>
@@ -277,7 +298,7 @@
   // ---------- state ----------
   var snap = null, mode = 'connecting', sim = null, lastMsg = 0, pin = '', inSetup = false;
   try { pin = sessionStorage.getItem('slxd-pin') || ''; } catch (e) {}
-  var strips = {}, chRefs = {}, rxRefs = {}, chSig = '', rxSig = '';
+  var strips = {}, chRefs = {}, rxRefs = {}, chSig = null, rxSig = null;
   var stripsEl = $('#strips'), emptyEl = $('#empty'), statusEl = $('#status'), alertsEl = $('#alerts'), toastEl = $('#toast');
 
   var toastTimer;
@@ -286,32 +307,31 @@
     clearTimeout(toastTimer); toastTimer = setTimeout(function () { toastEl.className = 'toast'; }, 3500);
   }
 
-  // ---------- sending commands ----------
-  function send(rxId, ch, action, value, retried) {
-    if (!snap || !snap.canControl) { toast('Changes are turned off on this dashboard'); return; }
-    if (mode === 'preview') {
-      var r = sim.command(rxId, ch, action, value);
-      if (!r.ok) toast(r.error);
-      return;
-    }
-    if (snap.pinRequired && !pin) {
+  // ---------- talking to the server ----------
+  // Every change goes through api(): it asks for the PIN when one is set, and asks again if it was wrong.
+  function api(path, body, retried) {
+    if (mode === 'preview') return Promise.resolve({ ok: false, error: 'Preview: open LiveMic from its server to change this' });
+    if (snap && snap.pinRequired && !pin) {
       var p = prompt('Control PIN');
-      if (p == null) return;
+      if (p == null) return Promise.resolve({ ok: false, cancelled: true });
       pin = p; try { sessionStorage.setItem('slxd-pin', pin); } catch (e) {}
     }
-    fetch('api/cmd', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-pin': pin },
-      body: JSON.stringify({ receiver: rxId, channel: ch, action: action, value: value })
-    }).then(function (r) { return r.json().then(function (j) { return { status: r.status, j: j }; }); })
+    return fetch(path, { method: 'POST', headers: { 'content-type': 'application/json', 'x-pin': pin }, body: JSON.stringify(body) })
+      .then(function (r) { return r.json().then(function (j) { return { status: r.status, j: j }; }); })
       .then(function (res) {
         if (res.status === 401) {
           pin = ''; try { sessionStorage.removeItem('slxd-pin'); } catch (e) {}
-          if (!retried) return send(rxId, ch, action, value, true);
+          if (!retried) return api(path, body, true);
         }
-        if (!res.j.ok) toast(res.j.error || 'Command failed');
+        return res.j;
       })
-      .catch(function () { toast('Could not reach the dashboard server'); });
+      .catch(function () { return { ok: false, error: 'Could not reach the dashboard server' }; });
+  }
+  function report(j, fallback) { if (!j.ok && !j.cancelled) toast(j.error || fallback); return j; }
+  function send(rxId, ch, action, value) {
+    if (!snap || !snap.canControl) { toast('Changes are turned off on this dashboard'); return; }
+    if (mode === 'preview') { var r = sim.command(rxId, ch, action, value); if (!r.ok) toast(r.error); return; }
+    api('api/cmd', { receiver: rxId, channel: ch, action: action, value: value }).then(function (j) { report(j, 'Command failed'); });
   }
 
   // ---------- theme ----------
@@ -485,7 +505,8 @@
     Object.keys(strips).forEach(function (key) { if (!seen[key]) { strips[key].el.remove(); delete strips[key]; } });
     stripsEl.classList.toggle('nogc', !cfg.gainCheck);
     emptyEl.classList.toggle('hide', visible > 0);
-    emptyEl.textContent = !total ? 'No receivers configured.' : 'No transmitters linked. Idle channels are hidden (Settings > Mixer).';
+    $('#emptyMsg').textContent = !total ? (s.configurable ? 'No receivers yet.' : 'No receivers configured.') : 'No transmitters linked. Idle channels are hidden (Settings > Mixer).';
+    $('#emptyBtn').classList.toggle('hide', !!total || !s.configurable);
 
     renderStatus(s, online);
     alertsEl.innerHTML = alerts.slice(0, 8).map(function (a) { return '<span class="st ' + a.lvl + '"><span class="dot ' + a.lvl + '"></span>' + esc(a.text) + '</span>'; }).join('');
@@ -495,7 +516,8 @@
   function renderStatus(s, online) {
     var parts = [], n = s.receivers.length;
     var bad = s.receivers.filter(function (r) { return r.status !== 'ok'; });
-    if (!bad.length) parts.push('<span class="st"><span class="dot ok"></span>' + n + ' receiver' + (n === 1 ? '' : 's') + ' online</span>');
+    if (!n) parts.push('<span class="st"><span class="dot"></span>No receivers yet</span>');
+    else if (!bad.length) parts.push('<span class="st"><span class="dot ok"></span>' + n + ' receiver' + (n === 1 ? '' : 's') + ' online</span>');
     else bad.slice(0, 2).forEach(function (r) {
       var c = r.status === 'connecting' ? 'warn' : 'bad';
       parts.push('<span class="st ' + c + '"><span class="dot ' + c + '"></span>' + esc(r.name) + ' ' + (r.status === 'connecting' ? 'connecting' : r.status === 'no-data' ? 'no data' : 'offline') + '</span>');
@@ -515,6 +537,7 @@
   function buildChannels(s) {
     var root = $('#chPane'); root.innerHTML = ''; chRefs = {};
     var note = mk('div', 'locknote hide', 'Changes are turned off on this dashboard (read-only in config.json).'); note.id = 'roNote'; root.appendChild(note);
+    if (!s.receivers.length) root.appendChild(mk('div', 'note pnote', 'No receivers yet. Add them under Receivers.'));
     s.receivers.forEach(function (rx) {
       var card = mk('div', 'card', '<h2>' + esc(rx.name) + '</h2>');
       rx.channels.forEach(function (c) {
@@ -563,36 +586,154 @@
     });
   }
 
-  // ---------- settings: Receivers (read-only diagnostics) ----------
+  // ---------- settings: Receivers (search, add, edit, remove, diagnostics) ----------
+  var scan = { timer: null, last: null, sig: '' };
+  function loadScan() {
+    return fetch('api/discover', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
+      scan.last = d;
+      $('#scList').innerHTML = (d.ranges || []).map(function (r) { return '<option value="' + esc(r) + '">'; }).join('');
+      var inp = $('#scRange');
+      if (!inp.value) { var sv = ''; try { sv = localStorage.getItem('slxd-range') || ''; } catch (e) {} inp.value = sv || (d.ranges && d.ranges[0]) || ''; }
+      renderScan(d);
+      clearTimeout(scan.timer);
+      if (d.running) scan.timer = setTimeout(loadScan, 700);
+    }).catch(function () {});
+  }
+  function startSearch() {
+    var range = $('#scRange').value.trim();
+    return api('api/discover', { range: range }).then(function (j) {
+      report(j, 'Could not start the search');
+      if (j.ok) { try { localStorage.setItem('slxd-range', range); } catch (e) {} scan.sig = ''; loadScan(); }
+    });
+  }
+  function hostKey(f) { return f.host + (f.port !== 2202 ? ':' + f.port : ''); }
+  function addFound(f) {
+    var name = (f.deviceId && f.deviceId.trim()) || ((f.model || 'Receiver') + ' ' + f.host.split('.').pop());
+    return api('api/receivers', { action: 'add', name: name, host: hostKey(f), channels: f.channels || 2 }).then(function (j) { return report(j, 'Could not add it'); });
+  }
+  function renderScan(d) {
+    var have = {}; (snap ? snap.receivers : []).forEach(function (r) { have[r.host] = true; });
+    var msg = '';
+    if (d.id) {
+      if (d.running) msg = 'Searching ' + d.range + '… ' + Math.round(d.done / Math.max(1, d.total) * 100) + '% (' + d.found.length + ' found)';
+      else msg = d.found.length ? 'Search finished: ' + d.found.length + ' device' + (d.found.length > 1 ? 's' : '') + ' answered on port 2202.'
+        : 'Nothing answered on port 2202 in ' + d.range + '. Check the range, and that the receivers are on and connected to the network.';
+    }
+    $('#scStatus').textContent = msg; $('#scStatus').classList.toggle('hide', !msg);
+    $('#scGo').textContent = d.running ? 'Stop' : 'Search';
+    var sig = [d.id, d.running, d.found.map(function (f) { return hostKey(f) + f.kind + (have[hostKey(f)] ? 1 : 0); }).join(',')].join('|');
+    if (sig === scan.sig) return;
+    scan.sig = sig;
+    var box = $('#scResults'); box.innerHTML = '';
+    var addable = [];
+    d.found.forEach(function (f, i) {
+      var title, sub, label = 'Add', can = true;
+      if (f.kind === 'slxd') {
+        title = f.model || 'SLX-D';
+        sub = f.host + (f.deviceId ? ' · ' + f.deviceId : '') + (f.fw ? ' · firmware ' + f.fw : '') + ' · ' + f.channels + ' channel' + (f.channels > 1 ? 's' : '');
+      } else if (f.kind === 'other') {
+        title = f.model || 'Shure device'; sub = f.host + ' · not an SLX-D, LiveMic cannot read it'; can = false;
+      } else {
+        title = 'Device at ' + f.host; sub = 'Port 2202 is open but it did not answer. On an SLX-D, set Advanced Settings > Controller Access to Allow, then search again'; label = 'Add anyway';
+      }
+      var row = mk('div', 'set' + (i === 0 ? ' first' : ''), '<div class="sl"><b>' + esc(title) + '</b><span>' + esc(sub) + '</span></div><div class="sc"></div>');
+      if (can) {
+        var b = mk('button', have[hostKey(f)] ? '' : 'on', have[hostKey(f)] ? 'Added' : label);
+        if (have[hostKey(f)]) b.disabled = true; else { b.onclick = function () { b.disabled = true; addFound(f).then(function () { b.disabled = false; }); }; addable.push(f); }
+        $('.sc', row).appendChild(b);
+      }
+      box.appendChild(row);
+    });
+    var slx = addable.filter(function (f) { return f.kind === 'slxd'; });
+    if (slx.length > 1) {
+      var all = mk('div', 'set', '<div class="sl"><b>Add all SLX-D receivers found</b></div><div class="sc"></div>');
+      var ab = mk('button', 'on', 'Add all'); $('.sc', all).appendChild(ab);
+      ab.onclick = function () { ab.disabled = true; slx.reduce(function (p, f) { return p.then(function () { return addFound(f); }); }, Promise.resolve()).then(function () { ab.disabled = false; }); };
+      box.appendChild(all);
+    }
+  }
+  function openSearch() {
+    showTab(true); showSub('receivers');
+    loadScan().then(function () {
+      if (scan.last && scan.last.running) return;
+      if ($('#scRange').value.trim()) startSearch(); else $('#scRange').focus();
+    });
+  }
+  $('#emptyBtn').onclick = openSearch;
+  $('#scGo').onclick = function () {
+    if (scan.last && scan.last.running) api('api/discover', { stop: true }).then(function () { loadScan(); });
+    else startSearch();
+  };
+  $('#scRange').addEventListener('keydown', function (e) { if (e.key === 'Enter') startSearch(); });
+  var adCh = 2;
+  $$('#adCh button').forEach(function (b) { b.onclick = function () { adCh = +b.dataset.v; $$('#adCh button').forEach(function (x) { x.classList.toggle('on', x === b); }); }; });
+  $('#adGo').onclick = function () {
+    api('api/receivers', { action: 'add', name: $('#adName').value, host: $('#adHost').value, channels: adCh }).then(function (j) {
+      report(j, 'Could not add it');
+      if (j.ok) { $('#adHost').value = ''; $('#adName').value = ''; }
+    });
+  };
+  $('#adHost').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('#adGo').click(); });
+
   function buildReceivers(s) {
     var root = $('#rxPane'); root.innerHTML = ''; rxRefs = {};
     s.receivers.forEach(function (rx) {
-      var card = mk('div', 'card', '<h2>' + esc(rx.name) + '</h2>');
+      var card = mk('div', 'card', '<h2></h2>');
       var conn = mk('div', 'set first', '<div class="sl"><b>Connection</b><span class="addr"></span></div><div class="sc"><span class="val cst"></span></div>');
       var mdl = mk('div', 'set', '<div class="sl"><b>Model</b><span>Firmware</span></div><div class="sc"><span class="val mdl"></span></div>');
       card.appendChild(conn); card.appendChild(mdl);
-      var r = rxRefs[rx.id] = { addr: $('.addr', conn), cst: $('.cst', conn), mdl: $('.mdl', mdl), mdlSub: $('.sl span', mdl), ch: {} };
+      var r = rxRefs[rx.id] = { h2: $('h2', card), addr: $('.addr', conn), cst: $('.cst', conn), mdl: $('.mdl', mdl), mdlSub: $('.sl span', mdl), ch: {} };
+      if (s.configurable) {
+        var rName = mk('div', 'set', '<div class="sl"><b>Name</b><span>How this receiver is labelled here</span></div><div class="sc"><input class="txt wide" maxlength="24" autocomplete="off" aria-label="Receiver name"><button>Set</button></div>');
+        var rAddr = mk('div', 'set', '<div class="sl"><b>Address</b><span>IP address or host name</span></div><div class="sc"><input class="txt wide" spellcheck="false" autocomplete="off" aria-label="Receiver address"><button>Set</button></div>');
+        var rCh = mk('div', 'set', '<div class="sl"><b>Channels</b><span>SLXD4: 1 &middot; SLXD4D: 2 &middot; SLXD4Q: 4</span></div><div class="sc"><div class="seg"><button data-v="1">1</button><button data-v="2">2</button><button data-v="4">4</button></div></div>');
+        card.appendChild(rName); card.appendChild(rAddr); card.appendChild(rCh);
+        r.nameI = $('input', rName); r.addrI = $('input', rAddr); r.chB = $$('.seg button', rCh);
+        [r.nameI, r.addrI].forEach(function (i) { i.addEventListener('input', function () { i._dirty = true; }); });
+        function setName() { r.nameI._dirty = false; r.nameI._hold = Date.now() + 2000; api('api/receivers', { action: 'update', id: rx.id, name: r.nameI.value }).then(function (j) { report(j, 'Could not rename it'); }); }
+        function setAddr() { r.addrI._dirty = false; r.addrI._hold = Date.now() + 2000; api('api/receivers', { action: 'update', id: rx.id, host: r.addrI.value }).then(function (j) { report(j, 'Could not change the address'); }); }
+        $('button', rName).onclick = setName; r.nameI.addEventListener('keydown', function (e) { if (e.key === 'Enter') setName(); });
+        $('button', rAddr).onclick = setAddr; r.addrI.addEventListener('keydown', function (e) { if (e.key === 'Enter') setAddr(); });
+        r.chB.forEach(function (b) { b.onclick = function () { api('api/receivers', { action: 'update', id: rx.id, channels: +b.dataset.v }).then(function (j) { report(j, 'Could not change the channels'); }); }; });
+      }
       rx.channels.forEach(function (c) {
         var row = mk('div', 'set', '<div class="sl"><b></b><span></span></div>');
         card.appendChild(row); r.ch[c.ch] = { b: $('b', row), s: $('span', row) };
       });
       r.help = mk('div', 'note hide', 'Connected but no data. On the receiver, open Advanced Settings > Controller Access and set it to Allow.');
       r.help.style.paddingTop = '8px'; card.appendChild(r.help);
+      if (s.configurable) {
+        var rm = mk('div', 'set', '<div class="sl"><b>Remove receiver</b><span>Stops monitoring it. The receiver itself is not changed</span></div><div class="sc"><button class="danger">Remove</button></div>');
+        card.appendChild(rm);
+        $('button', rm).onclick = function () {
+          if (!confirm('Remove ' + r.h2.textContent + ' from LiveMic?')) return;
+          api('api/receivers', { action: 'remove', id: rx.id }).then(function (j) { report(j, 'Could not remove it'); });
+        };
+      }
       root.appendChild(card);
     });
-    var foot = mk('div', 'note pnote', 'Receivers are listed in config.json on the machine running the dashboard.');
-    root.appendChild(foot);
   }
   function updateReceivers(s) {
-    var sig = s.receivers.map(function (r) { return r.id + ':' + r.channels.length; }).join('|');
+    var sig = (s.configurable ? 'c' : 'r') + s.receivers.map(function (r) { return r.id + ':' + r.channels.length; }).join('|');
     if (sig !== rxSig) { rxSig = sig; buildReceivers(s); }
+    var note = '';
+    if (s.demo === 'preview') note = 'Preview: this page is not connected to a LiveMic server, so receivers cannot be managed here.';
+    else if (s.demo) note = 'Demo mode: these receivers are simulated. Start LiveMic without --demo to set up real ones.';
+    else if (!s.configWritable) note = 'Settings cannot be saved here because the config file is read-only. In Docker, mount the data folder without :ro.';
+    $('#rxNote').textContent = note; $('#rxNote').classList.toggle('hide', !note);
+    $('#rxMgmt').classList.toggle('hide', !s.configurable);
     s.receivers.forEach(function (rx) {
       var r = rxRefs[rx.id]; if (!r) return;
+      r.h2.textContent = rx.name;
       r.addr.textContent = rx.host;
       var txt = { ok: 'Online', connecting: 'Connecting…', offline: 'Offline', 'no-data': 'No data' }[rx.status] || rx.status;
       r.cst.textContent = txt; r.cst.className = 'val cst ' + (rx.status === 'ok' ? 'ok' : rx.status === 'connecting' ? 'warn' : 'bad');
       r.mdl.textContent = rx.model || '—'; r.mdlSub.textContent = rx.fw ? 'Firmware ' + rx.fw : 'Firmware';
       r.help.classList.toggle('hide', rx.status !== 'no-data');
+      if (r.nameI) {
+        syncInput(r.nameI, rx.name); syncInput(r.addrI, rx.host);
+        r.chB.forEach(function (b) { b.classList.toggle('on', +b.dataset.v === rx.channels.length); });
+      }
       rx.channels.forEach(function (c) {
         var o = r.ch[c.ch]; if (!o) return;
         o.b.textContent = 'Ch ' + c.ch + (c.name ? ' · ' + c.name : '');
@@ -601,6 +742,7 @@
           : 'No transmitter linked';
       });
     });
+    if (scan.last) renderScan(scan.last);
   }
 
   // ---------- settings: Settings pane ----------
@@ -617,10 +759,14 @@
     if (subPane === 'channels') updateChannels(s);
     else if (subPane === 'receivers') updateReceivers(s);
     else {
-      $('#ctlVal').textContent = s.canControl ? 'Allowed' : 'Read-only';
-      $('#ctlNote').textContent = s.canControl ? 'Gain, name, output level and frequency can be changed' : 'Turned off in config.json (readOnly)';
-      $('#pinVal').textContent = s.pinRequired ? 'Required' : 'Not set';
-      $('#pinVal').className = 'val ' + (s.pinRequired ? 'ok' : 'warn');
+      $$('#roSeg button').forEach(function (b) { b.classList.toggle('on', (b.dataset.v === 'ro') === !!s.readOnly); b.disabled = !s.configurable; });
+      $('#pinNote').textContent = s.pinRequired ? 'Required before anything is changed. Enter a new one to change it' : 'Not set: anyone on this network can change settings. At least 4 characters';
+      $('#pinNote').style.color = s.pinRequired ? 'var(--ok)' : '';
+      $('#pinSet').textContent = s.pinRequired ? 'Change' : 'Set';
+      $('#pinRm').classList.toggle('hide', !s.pinRequired);
+      $('#pinSet').disabled = $('#pinNew').disabled = !s.configurable;
+      var cn = s.demo === 'preview' ? 'Preview: this page is not connected to a LiveMic server.' : s.demo ? 'Demo mode: control settings apply to a real setup, not the simulated receivers.' : !s.configWritable ? 'Settings cannot be saved here because the config file is read-only.' : '';
+      $('#ctlNote').textContent = cn; $('#ctlNote').classList.toggle('hide', !cn);
       $('#verVal').textContent = s.version || '';
       var m = s.demo === 'preview' ? 'Preview' : s.demo ? 'Demo' : 'Live';
       $('#modeVal').textContent = m;
@@ -655,6 +801,24 @@
   $$('#idleSeg button').forEach(function (b) { b.onclick = function () { hideIdle = b.dataset.v === 'hide'; try { localStorage.setItem('slxd-hide-idle', hideIdle ? '1' : '0'); } catch (e) {} paintSettings(); if (snap) render(snap); }; });
   $$('#gcSeg button').forEach(function (b) { b.onclick = function () { cfg.gainCheck = b.dataset.v === 'on'; onCfgChanged(); }; });
 
+  $$('#roSeg button').forEach(function (b) { b.onclick = function () { api('api/settings', { readOnly: b.dataset.v === 'ro' }).then(function (j) { report(j, 'Could not change it'); }); }; });
+  $('#pinSet').onclick = function () {
+    var v = $('#pinNew').value;
+    if (v.length < 4) { toast('A PIN needs at least 4 characters'); return; }
+    api('api/settings', { newPin: v }).then(function (j) {
+      report(j, 'Could not set the PIN');
+      if (j.ok) { pin = v; try { sessionStorage.setItem('slxd-pin', v); } catch (e) {} $('#pinNew').value = ''; }
+    });
+  };
+  $('#pinNew').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('#pinSet').click(); });
+  $('#pinRm').onclick = function () {
+    if (!confirm('Remove the control PIN? Anyone on this network will be able to change settings.')) return;
+    api('api/settings', { newPin: null }).then(function (j) {
+      report(j, 'Could not remove the PIN');
+      if (j.ok) { pin = ''; try { sessionStorage.removeItem('slxd-pin'); } catch (e) {} }
+    });
+  };
+
   // ---------- settings button + side navigation ----------
   var gear = $('#gear');
   function showSub(name) {
@@ -662,6 +826,7 @@
     $$('#sub button').forEach(function (b) { b.classList.toggle('on', b.dataset.sub === name); });
     $$('[data-pane]').forEach(function (p) { p.classList.toggle('hide', p.dataset.pane !== name); });
     if (name === 'settings') paintSettings();
+    if (name === 'receivers' && snap && snap.configurable) loadScan();
     if (snap) updateSettings(snap);
   }
   $$('#sub button').forEach(function (b) { b.onclick = function () { showSub(b.dataset.sub); }; });
@@ -697,7 +862,7 @@
   function startPreview() {
     mode = 'preview';
     sim = SlxSim.create();
-    function frame() { sim.tick(0.25); var s = sim.snapshot(); s.demo = 'preview'; s.canControl = true; s.pinRequired = false; s.version = '0.3.1'; render(s); }
+    function frame() { sim.tick(0.25); var s = sim.snapshot(); s.demo = 'preview'; s.canControl = true; s.pinRequired = false; s.version = '0.4.0'; render(s); }
     frame(); setInterval(frame, 250);
   }
 

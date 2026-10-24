@@ -6,10 +6,10 @@ ENV NODE_ENV=production \
     PORT=8080
 
 WORKDIR /app
-COPY package.json server.js ./
+COPY package.json server.js discover.js ./
 COPY public ./public
 
-# the config lives outside the image, mounted at /data (read only is fine)
+# settings are saved from the web page into /data (a volume, so they survive updates)
 RUN mkdir -p /data && chown node:node /data
 USER node
 VOLUME /data

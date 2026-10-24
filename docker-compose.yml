@@ -1,6 +1,6 @@
-# Put your config at ./data/config.json (copy config.example.json), then:
-#   docker compose up -d
-# With no config file it starts in demo mode with simulated receivers.
+# docker compose up -d
+# Then open http://<this machine's IP>:8080 and set everything up from the web page:
+# Settings > Receivers > Search. Settings are kept in the livemic-data volume.
 services:
   livemic:
     image: ghcr.io/leonidis2013/livemic:latest
@@ -10,6 +10,9 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./data:/data:ro
+      - livemic-data:/data
     environment:
       TZ: America/Chicago
+
+volumes:
+  livemic-data:

@@ -6,7 +6,8 @@
 'use strict';
 const net = require('net');
 
-function createFake(port) {
+function createFake(port, opts = {}) {
+  const model = opts.model || 'SLXD4D';
   const ch = [
     { name: 'Pastor', gain: 30, out: 'MIC', freq: 606025, bars: 4, mins: 312, rssiA: 68, rssiB: 64 },
     { name: 'Vocal 1', gain: 28, out: 'LINE', freq: 610450, bars: 1, mins: 25, rssiA: 30, rssiB: 28 }
@@ -40,7 +41,8 @@ function createFake(port) {
         const rest = t.join(' ');
         if (kind === 'GET') {
           if (n == null) {
-            if (key === 'MODEL') out('< REP MODEL {SLXD4D} >');
+            if (key === 'MODEL') out(`< REP MODEL {${model}} >`);
+            if (key === 'DEVICE_ID') out('< REP DEVICE_ID {Church Rack               } >');
             if (key === 'FW_VER') out('< REP FW_VER {2.1.4} >');
             if (key === 'LOCK_STATUS') out('< REP LOCK_STATUS OFF >');
             continue;
