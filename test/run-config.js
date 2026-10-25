@@ -114,6 +114,78 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     r = await post('/api/receivers', { action: 'remove', id });
     s = await get('/api/state');
     ok(r.j.ok && s.receivers.length === 0 && onDisk().receivers.length === 0, 'remove a receiver');
+
+    // ---- channels detected automatically ----
+    const ulx2 = await createFake(12205, { model: 'ULXD4' });
+    r = await post('/api/receivers', { action: 'add', host: '127.0.0.1:12205' });
+    ok(!r.j.ok && /not an SLX-D/.test(r.j.error), 'auto-add refuses a device that is not an SLX-D');
+    r = await post('/api/receivers', { action: 'add', host: '127.0.0.1:12299' });
+    ok(!r.j.ok && /Could not read the model/.test(r.j.error), 'auto-add explains when nothing answers');
+    r = await post('/api/receivers', { action: 'add', host: '127.0.0.1:12202' });
+    await sleep(1200); s = await get('/api/state');
+    const id2 = s.receivers[0] && s.receivers[0].id;
+    ok(r.j.ok && s.receivers.length === 1 && s.receivers[0].channels.length === 2 && s.receivers[0].name === 'Church Rack', 'auto-add: channels and name come from the receiver');
+    await post('/api/receivers', { action: 'update', id: id2, channels: 1 });
+    r = await post('/api/receivers', { action: 'update', id: id2, channels: 'auto' });
+    await sleep(1200); s = await get('/api/state');
+    ok(r.j.ok && s.receivers[0].channels.length === 2, 'Detect puts the channel count back from the model');
+
+    // ---- photos ----
+    const jpg = (n) => 'data:image/jpeg;base64,' + Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, n, 2, 3, 4]).toString('base64');
+    r = await post('/api/photo', { receiver: id2, channel: 1, data: 'data:text/plain;base64,AAAA' });
+    ok(!r.j.ok, 'a picture that is not a JPEG is refused');
+    r = await post('/api/photo', { receiver: id2, channel: 1, data: 'data:image/jpeg;base64,' + Buffer.from('not a picture').toString('base64') });
+    ok(!r.j.ok, 'a JPEG-labelled file without JPEG data is refused');
+    r = await post('/api/photo', { receiver: id2, channel: 1, data: 'data:image/jpeg;base64,' + 'A'.repeat(500000) });
+    ok(r.status === 413, 'an oversized upload is refused');
+    r = await post('/api/photo', { receiver: id2, channel: 1, data: jpg(1) });
+    const photoA = r.j.id;
+    s = await get('/api/state');
+    const photoFile = (id) => path.join(path.dirname(cfgFile), 'photos', id + '.jpg');
+    ok(r.j.ok && photoA && s.receivers[0].channels[0].photo === photoA && s.receivers[0].channels[1].photo === null && fs.existsSync(photoFile(photoA)), 'a channel photo is saved and shown on that channel only');
+    const pr = await fetch(base + '/photos/' + photoA + '.jpg');
+    ok(pr.status === 200 && pr.headers.get('content-type') === 'image/jpeg', 'the picture is served');
+    ok((await fetch(base + '/photos/../config.json')).status === 404 && (await fetch(base + '/photos/zzzzzzzzzzzz.jpg')).status === 404, 'only real picture ids are served');
+
+    // ---- presets ----
+    r = await post('/api/presets', { action: 'save', receiver: id2, channel: 1 });
+    s = await get('/api/state');
+    const pA = s.presets[0];
+    ok(r.j.ok && s.presets.length === 1 && pA.name === 'Pastor' && pA.gain === 12 && pA.output === 'MIC' && pA.freq === 606.025 && pA.photo === photoA, 'save a preset from a channel (name, gain, output, frequency, photo)');
+    r = await post('/api/photo', { receiver: id2, channel: 1, data: null });
+    s = await get('/api/state');
+    ok(r.j.ok && s.receivers[0].channels[0].photo === null && fs.existsSync(photoFile(photoA)), 'removing a channel photo keeps the picture a preset still uses');
+    r = await post('/api/presets', { action: 'apply', id: pA.id, receiver: id2, channel: 2 });
+    await sleep(500); s = await get('/api/state');
+    ok(r.j.ok && slx.ch[1].name === 'Pastor' && slx.ch[1].gain === 30 && slx.ch[1].out === 'MIC' && slx.ch[1].freq === 606025, 'loading a preset sets name, gain, output level and frequency on the receiver');
+    ok(s.receivers[0].channels[1].photo === photoA, 'loading a preset also sets the channel photo');
+    r = await post('/api/presets', { action: 'save', receiver: id2, channel: 2, name: 'pastor' });
+    s = await get('/api/state');
+    ok(r.j.ok && s.presets.length === 1, 'saving under an existing name replaces that preset');
+    r = await post('/api/presets', { action: 'create' });
+    s = await get('/api/state');
+    const pB = s.presets.find((p) => p.id !== pA.id);
+    ok(r.j.ok && pB && pB.name === 'New mic' && pB.gain === 0, 'create a blank preset');
+    r = await post('/api/presets', { action: 'update', id: pB.id, gain: 99 });
+    ok(!r.j.ok, 'a preset gain outside -18 to +42 is refused');
+    r = await post('/api/presets', { action: 'update', id: pB.id, name: 'Choir', gain: 5, output: 'LINE', freq: 607.5 });
+    s = await get('/api/state');
+    ok(r.j.ok && s.presets.find((p) => p.id === pB.id).freq === 607.5 && s.presets.find((p) => p.id === pB.id).output === 'LINE', 'edit a preset');
+    r = await post('/api/presets', { action: 'update', id: pB.id, freq: '' });
+    s = await get('/api/state');
+    ok(r.j.ok && s.presets.find((p) => p.id === pB.id).freq === undefined, 'a blank frequency means leave the frequency alone');
+    r = await post('/api/presets', { action: 'remove', id: pA.id });
+    ok(r.j.ok && fs.existsSync(photoFile(photoA)), 'deleting a preset keeps a picture a channel still uses');
+    r = await post('/api/photo', { receiver: id2, channel: 2, data: null });
+    ok(r.j.ok && !fs.existsSync(photoFile(photoA)), 'a picture nothing uses any more is deleted');
+    await post('/api/settings', { readOnly: true });
+    r = await post('/api/presets', { action: 'apply', id: pB.id, receiver: id2, channel: 1 });
+    ok(r.status === 403, 'read-only blocks loading a preset');
+    await post('/api/settings', { readOnly: false });
+    await stop(); await start();
+    s = await get('/api/state');
+    ok(s.presets.length === 1 && s.presets[0].name === 'Choir', 'presets survive a restart');
+    ulx2.server.close();
   } catch (e) { ok(false, 'test error: ' + e.stack); }
   srv.kill(); slx.server.close();
   console.log(failed ? `\n${failed} FAILED` : '\nAll passed');

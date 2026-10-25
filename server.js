@@ -33,6 +33,7 @@ const METER_MS = Math.max(100, Number(cfg.meterMs) || 250);
 const DEMO = args.includes('--demo') || cfg.demo === true;
 const SCAN_PORT = Number(process.env.LIVEMIC_SCAN_PORT) || 2202;
 const IN_DOCKER = fs.existsSync('/.dockerenv');
+const photosDir = path.join(path.dirname(path.resolve(cfgPath)), 'photos');
 
 let configWritable = true;
 function checkWritable() {
@@ -103,6 +104,7 @@ class Receiver {
     this.host = conf.host;
     this.port = conf.port || 2202;
     this.nCh = Math.max(1, Math.min(4, Number(conf.channels) || 2));
+    this.photos = conf.photos || {};
     this.model = ''; this.fw = ''; this.lock = '';
     this.channels = [];
     for (let i = 1; i <= this.nCh; i++) {
@@ -250,7 +252,7 @@ class Receiver {
       id: this.id, name: this.name, host: this.host + (this.port !== 2202 ? ':' + this.port : ''),
       model: this.model, fw: this.fw, lock: this.lock,
       status: st, online: st === 'ok',
-      channels: this.channels.map((c) => Object.assign({}, c))
+      channels: this.channels.map((c) => Object.assign({}, c, { photo: this.photos[c.ch] || null }))
     };
   }
 }
@@ -268,6 +270,7 @@ function reconcile() {
     const port = conf.port || 2202, ch = Math.max(1, Math.min(4, Number(conf.channels) || 2));
     if (cur && cur.host === conf.host && cur.port === port && cur.nCh === ch) {
       cur.name = conf.name || conf.host;            // a rename keeps the connection
+      cur.photos = conf.photos || {};
       next.push(cur); old.delete(conf.id);
     } else {
       next.push(new Receiver(conf));
@@ -289,6 +292,7 @@ if (DEMO) {
 function snapshot() {
   const base = DEMO ? sim.snapshot() : { demo: false, receivers: receivers.map((r) => r.snapshot()) };
   base.version = pkg.version;
+  base.presets = DEMO ? [] : (cfg.presets || []).map((p) => Object.assign({}, p));
   base.canControl = !cfg.readOnly;
   base.readOnly = !!cfg.readOnly;
   base.pinRequired = pinSet();
@@ -363,11 +367,188 @@ function changeReceivers(body) {
   return { ok: false, error: 'Unknown action' };
 }
 
-/** Save the change, then bring the live connections in step with it. */
-function applyReceivers(body) {
+/**
+ * Save the change, then bring the live connections in step with it.
+ * Adding without a channel count (or "auto") asks the receiver for its model and uses that.
+ */
+async function applyReceivers(body) {
+  body = body || {};
+  const auto = (body.action === 'add' && (body.channels === undefined || body.channels === 'auto')) ||
+               (body.action === 'update' && body.channels === 'auto');
+  if (auto) {
+    let host, port;
+    if (body.action === 'add') {
+      const a = parseAddress(body.host);
+      if (a.error) return { ok: false, error: a.error };
+      host = a.host; port = a.port;
+    } else {
+      const rec = (cfg.receivers || []).find((r) => r.id === body.id);
+      if (!rec) return { ok: false, error: 'Unknown receiver' };
+      host = rec.host; port = rec.port || 2202;
+    }
+    const info = Discover.describe(await Discover.identify(host, port, 1500));
+    if (info.kind === 'silent') return { ok: false, error: 'Could not read the model from that address, so the channels cannot be detected. Check the address and that Advanced Settings > Controller Access is set to Allow on the receiver, or choose the number of channels yourself.' };
+    if (info.kind !== 'slxd') return { ok: false, error: 'That device is not an SLX-D receiver (' + (info.model || 'unknown model') + ')' };
+    body = Object.assign({}, body, { channels: info.channels });
+    if (body.action === 'add' && !String(body.name || '').trim() && info.deviceId) body.name = info.deviceId;
+  }
   const r = changeReceivers(body);
-  if (r.ok) reconcile();
+  if (r.ok) { reconcile(); gcPhotos(); }
   return r;
+}
+
+// ---------- photos (one per channel, and one per preset) ----------
+function gcPhotos() {                                  // delete picture files nothing refers to any more
+  let files; try { files = fs.readdirSync(photosDir); } catch (e) { return; }
+  const used = new Set();
+  (cfg.receivers || []).forEach((r) => Object.keys(r.photos || {}).forEach((k) => used.add(r.photos[k])));
+  (cfg.presets || []).forEach((p) => { if (p.photo) used.add(p.photo); });
+  files.forEach((f) => {
+    const m = /^([a-f0-9]{12})\.jpg$/.exec(f);
+    if (m && !used.has(m[1])) { try { fs.unlinkSync(path.join(photosDir, f)); } catch (e) { /* leave it */ } }
+  });
+}
+
+function storePhoto(data) {                            // data URL from the page (already resized to a small JPEG)
+  const m = /^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/.exec(String(data || ''));
+  if (!m) return { error: 'That picture could not be read' };
+  const buf = Buffer.from(m[1], 'base64');
+  if (buf.length > 300000) return { error: 'That picture is too large' };
+  if (buf.length < 4 || buf[0] !== 0xFF || buf[1] !== 0xD8 || buf[2] !== 0xFF) return { error: 'That is not a JPEG picture' };
+  const id = crypto.randomBytes(6).toString('hex');
+  fs.mkdirSync(photosDir, { recursive: true });
+  fs.writeFileSync(path.join(photosDir, id + '.jpg'), buf);
+  return { id };
+}
+
+/** { receiver, channel } or { preset }, plus data (a picture) or null (remove it). */
+function setPhoto(body) {
+  body = body || {};
+  let id = null;
+  if (body.data) {
+    let st;
+    try { st = storePhoto(body.data); } catch (e) { return { ok: false, status: 500, error: 'Could not save the picture (' + (e.code || e.message) + '). Is ' + photosDir + ' writable?' }; }
+    if (st.error) return { ok: false, error: st.error };
+    id = st.id;
+  }
+  const r = changeConfig((c) => {
+    if (body.preset) {
+      const p = (c.presets || []).find((x) => x.id === body.preset);
+      if (!p) return 'Unknown preset';
+      if (id) p.photo = id; else delete p.photo;
+    } else {
+      const rec = (c.receivers || []).find((x) => x.id === body.receiver);
+      if (!rec) return 'Unknown receiver';
+      const ch = Number(body.channel);
+      if (!(ch >= 1 && ch <= 4)) return 'Unknown channel';
+      rec.photos = rec.photos || {};
+      if (id) rec.photos[ch] = id; else delete rec.photos[ch];
+      if (!Object.keys(rec.photos).length) delete rec.photos;
+    }
+    return null;
+  });
+  if (!r.ok) { if (id) { try { fs.unlinkSync(path.join(photosDir, id + '.jpg')); } catch (e) { /* none */ } } return r; }
+  reconcile(); gcPhotos();
+  return { ok: true, id };
+}
+
+// ---------- presets: a saved mic (name, picture, gain, output level, frequency) ----------
+const MAX_PRESETS = 100;
+function presetFields(p, body) {                        // validate and copy the fields that are present
+  if (body.name !== undefined) {
+    const v = Sim.normalize('name', body.name); if (!v.ok) return v.error;
+    p.name = v.value;
+  }
+  if (body.gain !== undefined) {
+    const v = Sim.normalize('gain', body.gain); if (!v.ok) return v.error;
+    p.gain = v.value;
+  }
+  if (body.output !== undefined) {
+    const v = Sim.normalize('output', body.output); if (!v.ok) return v.error;
+    p.output = v.value;
+  }
+  if (body.freq !== undefined) {                         // MHz; null or '' means "leave the frequency alone"
+    if (body.freq === null || body.freq === '') delete p.freq;
+    else { const v = Sim.normalize('freq', body.freq); if (!v.ok) return v.error; p.freq = v.value / 1000; }
+  }
+  return null;
+}
+
+function changePresets(body) {
+  body = body || {};
+  const { action } = body;
+  if (action === 'create' || action === 'update') {
+    return changeConfig((c) => {
+      c.presets = Array.isArray(c.presets) ? c.presets : [];
+      let p;
+      if (action === 'create') {
+        if (c.presets.length >= MAX_PRESETS) return 'That is the most presets you can keep (' + MAX_PRESETS + ')';
+        p = { id: 'pr' + crypto.randomBytes(3).toString('hex'), name: 'New mic', gain: 0, output: 'MIC' };
+      } else {
+        p = c.presets.find((x) => x.id === body.id);
+        if (!p) return 'Unknown preset';
+      }
+      const err = presetFields(p, body); if (err) return err;
+      if (action === 'create') c.presets.push(p);
+      return null;
+    });
+  }
+  if (action === 'save') {                               // from what a channel is doing right now
+    const rx = receivers.find((r) => r.id === body.receiver);
+    const ch = rx && rx.chan(Number(body.channel));
+    if (!ch) return { ok: false, error: 'Unknown channel' };
+    if (!rx.connected || !rx.everConnected) return { ok: false, error: 'Receiver is not connected' };
+    const name = body.name !== undefined ? body.name : ch.name;
+    const nm = Sim.normalize('name', name); if (!nm.ok) return nm;
+    const photo = rx.photos[ch.ch] || null;
+    const r = changeConfig((c) => {
+      c.presets = Array.isArray(c.presets) ? c.presets : [];
+      let p = c.presets.find((x) => String(x.name).toLowerCase() === nm.value.toLowerCase());
+      if (!p) {
+        if (c.presets.length >= MAX_PRESETS) return 'That is the most presets you can keep (' + MAX_PRESETS + ')';
+        p = { id: 'pr' + crypto.randomBytes(3).toString('hex') };
+        c.presets.push(p);
+      }
+      p.name = nm.value; p.gain = ch.gain; p.output = ch.out === 'LINE' ? 'LINE' : 'MIC';
+      if (ch.freq) p.freq = Math.round(ch.freq * 1000) / 1000; else delete p.freq;
+      if (photo) p.photo = photo; else delete p.photo;
+      return null;
+    });
+    if (r.ok) gcPhotos();
+    return r;
+  }
+  if (action === 'remove') {
+    const r = changeConfig((c) => {
+      const n = (c.presets || []).length;
+      c.presets = (c.presets || []).filter((x) => x.id !== body.id);
+      return c.presets.length === n ? 'Unknown preset' : null;
+    });
+    if (r.ok) gcPhotos();
+    return r;
+  }
+  if (action === 'apply') {                              // load onto a channel of a receiver
+    if (cfg.readOnly) return { ok: false, status: 403, error: 'Dashboard is read-only' };
+    const p = (cfg.presets || []).find((x) => x.id === body.id);
+    if (!p) return { ok: false, error: 'Unknown preset' };
+    const rx = receivers.find((r) => r.id === body.receiver);
+    if (!rx || !rx.chan(Number(body.channel))) return { ok: false, error: 'Unknown channel' };
+    if (!rx.connected) return { ok: false, error: 'Receiver is not connected' };
+    const steps = [['name', p.name], ['gain', p.gain], ['output', p.output]];
+    if (p.freq) steps.push(['freq', p.freq]);            // last: the transmitter drops until it is synced again
+    for (const [a, v] of steps) { const n = Sim.normalize(a, v); if (!n.ok) return n; }
+    for (const [a, v] of steps) { const r = rx.command(Number(body.channel), a, v); if (!r.ok) return r; }
+    const ph = changeConfig((c) => {
+      const rec = (c.receivers || []).find((x) => x.id === body.receiver);
+      if (!rec) return null;
+      rec.photos = rec.photos || {};
+      if (p.photo) rec.photos[Number(body.channel)] = p.photo; else delete rec.photos[Number(body.channel)];
+      if (!Object.keys(rec.photos).length) delete rec.photos;
+      return null;
+    });
+    if (ph.ok) { reconcile(); gcPhotos(); }
+    return { ok: true };
+  }
+  return { ok: false, error: 'Unknown action' };
 }
 
 function changeSettings(body) {
@@ -414,18 +595,21 @@ function json(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 
-/** Read a JSON body, check the PIN, then hand it to fn(body) -> {ok, error, status}. */
-function postJson(req, res, fn, { needPin = true } = {}) {
-  let raw = '';
-  req.on('data', (d) => { raw += d; if (raw.length > 4096) req.destroy(); });
+/** Read a JSON body, check the PIN, then hand it to fn(body) -> {ok, error, status, id} (or a promise of one). */
+function postJson(req, res, fn, { needPin = true, limit = 4096 } = {}) {
+  let raw = '', tooBig = false;
+  req.on('data', (d) => { if (tooBig) return; raw += d; if (raw.length > limit) { tooBig = true; raw = ''; } });
   req.on('end', () => {
     if (needPin && !pinOk(req.headers['x-pin'])) {
       return setTimeout(() => json(res, 401, { ok: false, error: 'Wrong or missing PIN' }), 500);
     }
+    if (tooBig) return json(res, 413, { ok: false, error: 'That is too large' });
     let body;
     try { body = JSON.parse(raw || '{}'); } catch (e) { return json(res, 400, { ok: false, error: 'Bad JSON' }); }
-    const r = fn(body) || { ok: false, error: 'Nothing happened' };
-    json(res, r.ok ? 200 : (r.status || 400), { ok: r.ok, error: r.error });
+    Promise.resolve().then(() => fn(body)).then((r) => {
+      r = r || { ok: false, error: 'Nothing happened' };
+      json(res, r.ok ? 200 : (r.status || 400), { ok: r.ok, error: r.error, id: r.id });
+    }).catch((e) => json(res, 500, { ok: false, error: 'Something went wrong: ' + e.message }));
   });
 }
 
@@ -439,6 +623,15 @@ const server = http.createServer((req, res) => {
     return fs.readFile(path.join(PUBLIC, file), (err, data) => {
       if (err) { res.writeHead(500); return res.end('Missing ' + file); }
       res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });
+      res.end(data);
+    });
+  }
+
+  const pm = /^\/photos\/([a-f0-9]{12})\.jpg$/.exec(url);
+  if (req.method === 'GET' && pm) {
+    return fs.readFile(path.join(photosDir, pm[1] + '.jpg'), (err, data) => {
+      if (err) { res.writeHead(404); return res.end('Not found'); }
+      res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'public, max-age=31536000, immutable' });
       res.end(data);
     });
   }
@@ -464,6 +657,8 @@ const server = http.createServer((req, res) => {
 
   if (req.method === 'POST' && url === '/api/cmd') return postJson(req, res, runCommand);
   if (req.method === 'POST' && url === '/api/receivers') return postJson(req, res, (b) => DEMO ? demoMsg : applyReceivers(b));
+  if (req.method === 'POST' && url === '/api/presets') return postJson(req, res, (b) => DEMO ? demoMsg : changePresets(b));
+  if (req.method === 'POST' && url === '/api/photo') return postJson(req, res, (b) => DEMO ? demoMsg : setPhoto(b), { limit: 400000 });
   if (req.method === 'POST' && url === '/api/settings') return postJson(req, res, (b) => DEMO ? demoMsg : changeSettings(b));
   if (req.method === 'POST' && url === '/api/discover') {
     return postJson(req, res, (b) => {

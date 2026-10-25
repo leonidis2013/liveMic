@@ -104,6 +104,10 @@
   .batt i.on { background:var(--ok); } .batt.low i.on { background:var(--warn); } .batt.crit i.on { background:var(--bad); }
 
   .empty { color:var(--dim); text-align:center; padding:60px 10px; }
+  /* photos: a round picture above the name (every strip reserves the space once any channel has one) */
+  .ph { display:none; width:56px; height:56px; flex:none; margin:2px auto 0; border-radius:50%; background:var(--card2) center/cover no-repeat; align-items:center; justify-content:center; font-weight:800; font-size:22px; color:var(--faint); }
+  .hasph .ph { display:flex; }
+  .thumb { width:40px; height:40px; flex:none; border-radius:50%; background:var(--card2) center/cover no-repeat; display:flex; align-items:center; justify-content:center; font-weight:700; color:var(--faint); }
 
   /* ===== settings (same layout as LivePi's Setup) ===== */
   .setup { display:flex; gap:14px; align-items:flex-start; }
@@ -124,6 +128,7 @@
   .sc input.txt { width:120px; max-width:100%; }
   .sc input.num { width:72px; text-align:center; }
   .sc input.wide { width:170px; max-width:100%; }
+  .sc select { max-width:170px; }
   button.danger { color:var(--bad); }
   .sc .to { font-size:12px; color:var(--dim); }
   .sc .val { font-size:13px; color:var(--dim); font-variant-numeric:tabular-nums; text-align:right; }
@@ -193,11 +198,20 @@
  <div class="setup">
   <div class="side" id="sub">
     <button data-sub="channels" class="on"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="7" cy="18" r="2"/></svg><span>Channels</span></button>
+    <button data-sub="presets"><svg viewBox="0 0 24 24"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"/></svg><span>Presets</span></button>
     <button data-sub="receivers"><svg viewBox="0 0 24 24"><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 17h.01M12 14V9M8.5 6.5a5 5 0 0 1 7 0M6 4a8.5 8.5 0 0 1 12 0"/></svg><span>Receivers</span></button>
     <button data-sub="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg><span>Settings</span></button>
   </div>
   <div class="pane">
     <div data-pane="channels"><div id="chPane"></div></div>
+    <div data-pane="presets" class="hide">
+      <div id="prNote" class="locknote hide"></div>
+      <div id="prMgmt">
+        <div class="note pnote">A preset is a saved mic: name, photo, gain, output level and frequency. Load one onto any channel from Channels, or save a channel as a preset there. A blank frequency leaves the frequency alone.</div>
+        <div class="card"><div class="set first"><div class="sl"><b>New preset</b><span>Start from a blank one and fill it in below</span></div><div class="sc"><button id="prNew" class="on">New preset</button></div></div></div>
+        <div id="prPane"></div>
+      </div>
+    </div>
     <div data-pane="receivers" class="hide">
       <div id="rxNote" class="locknote hide"></div>
       <div id="rxMgmt">
@@ -210,8 +224,8 @@
         <div class="card">
           <h2>Add by address</h2>
           <div class="set first"><div class="sl"><b>Address</b><span>IP address or host name of the receiver</span></div><div class="sc"><input id="adHost" class="txt wide" placeholder="192.168.1.51" spellcheck="false" autocomplete="off" aria-label="Receiver address"></div></div>
-          <div class="set"><div class="sl"><b>Name</b><span>Optional</span></div><div class="sc"><input id="adName" class="txt wide" maxlength="24" autocomplete="off" aria-label="Receiver name"></div></div>
-          <div class="set"><div class="sl"><b>Channels</b><span>SLXD4: 1 &middot; SLXD4D: 2 &middot; SLXD4Q: 4</span></div><div class="sc"><div class="seg" id="adCh"><button data-v="1">1</button><button data-v="2" class="on">2</button><button data-v="4">4</button></div></div></div>
+          <div class="set"><div class="sl"><b>Name</b><span>Optional. Uses the name stored in the receiver if left empty</span></div><div class="sc"><input id="adName" class="txt wide" maxlength="24" autocomplete="off" aria-label="Receiver name"></div></div>
+          <div class="set"><div class="sl"><b>Channels</b><span>Auto asks the receiver which model it is</span></div><div class="sc"><div class="seg" id="adCh"><button data-v="auto" class="on">Auto</button><button data-v="1">1</button><button data-v="2">2</button><button data-v="4">4</button></div></div></div>
           <div class="set"><div class="sl"></div><div class="sc"><button id="adGo" class="on">Add receiver</button></div></div>
         </div>
       </div>
@@ -293,12 +307,12 @@
   try { themePref = localStorage.getItem('slxd-theme') || 'auto'; } catch (e) {}
   try { subPane = localStorage.getItem('slxd-sub') || 'channels'; } catch (e) {}
   if (['auto', 'dark', 'light'].indexOf(themePref) < 0) themePref = 'auto';
-  if (['channels', 'receivers', 'settings'].indexOf(subPane) < 0) subPane = 'channels';
+  if (['channels', 'presets', 'receivers', 'settings'].indexOf(subPane) < 0) subPane = 'channels';
 
   // ---------- state ----------
   var snap = null, mode = 'connecting', sim = null, lastMsg = 0, pin = '', inSetup = false;
   try { pin = sessionStorage.getItem('slxd-pin') || ''; } catch (e) {}
-  var strips = {}, chRefs = {}, rxRefs = {}, chSig = null, rxSig = null;
+  var strips = {}, chRefs = {}, rxRefs = {}, chSig = null, rxSig = null, prSig = null;
   var stripsEl = $('#strips'), emptyEl = $('#empty'), statusEl = $('#status'), alertsEl = $('#alerts'), toastEl = $('#toast');
 
   var toastTimer;
@@ -374,7 +388,7 @@
   function buildStrip(rx, c) {
     var el = mk('article', 'strip');
     el.innerHTML =
-      '<div class="nm"></div><div class="sb"></div>' +
+      '<div class="ph"></div><div class="nm"></div><div class="sb"></div>' +
       '<div class="mf"><div class="scale">' + SCALE_DB.map(function (d) { return '<span style="bottom:' + pct(d, METER_MIN, METER_MAX) + '%">' + d + '</span>'; }).join('') + '</div>' +
         '<div class="meter"><div class="lv"></div><div class="zone"></div><div class="tk"></div><div class="pk"></div><div class="clip">CLIP</div></div></div>' +
       '<div class="lvl">—</div>' +
@@ -383,7 +397,7 @@
       '<div class="mini"><span>RF</span><div class="rfbar"><i></i></div><span class="mv rv">—</span></div>' +
       '<div class="mini"><span>Batt</span><div class="batt"><i></i><i></i><i></i><i></i><i></i></div><span class="mv bv">—</span></div>';
     var k = {
-      el: el, rx: rx.id, ch: c.ch, nm: $('.nm', el), sb: $('.sb', el), lv: $('.lv', el), pk: $('.pk', el), zone: $('.zone', el), clip: $('.clip', el),
+      el: el, rx: rx.id, ch: c.ch, ph: $('.ph', el), photo: undefined, nm: $('.nm', el), sb: $('.sb', el), lv: $('.lv', el), pk: $('.pk', el), zone: $('.zone', el), clip: $('.clip', el),
       lvl: $('.lvl', el), gv: $('.gv', el), hint: $('.hint', el), rfbar: $('.rfbar i', el), rv: $('.rv', el), batt: $('.batt', el), bv: $('.bv', el),
       peakHold: -120, peakAt: 0, clipUntil: 0, holdUntil: 0, pkHist: [], hintHtml: '', cur: ''
     };
@@ -446,7 +460,7 @@
   function render(s) {
     snap = s; lastMsg = Date.now();
     document.body.classList.remove('offline');
-    var now = Date.now(), seen = {}, alerts = [], total = 0, visible = 0, online = 0;
+    var now = Date.now(), seen = {}, alerts = [], total = 0, visible = 0, online = 0, anyPhoto = false;
 
     s.receivers.forEach(function (rx) {
       if (rx.status === 'ok') online++;
@@ -462,6 +476,9 @@
         pr.forEach(function (p) { alerts.push({ lvl: p.lvl, text: c.name + ': ' + p.t }); });
 
         k.cur = c.name;
+        if (k.photo !== c.photo) { k.photo = c.photo; k.ph.style.backgroundImage = c.photo ? 'url(photos/' + c.photo + '.jpg)' : ''; }
+        k.ph.textContent = c.photo ? '' : String(c.name || '?').charAt(0).toUpperCase();
+        if (c.photo) anyPhoto = true;
         k.nm.textContent = c.name || ('Ch ' + c.ch);
         k.el.title = rx.name + ' · Ch ' + c.ch + (c.freq ? ' · ' + c.freq.toFixed(3) + ' MHz' : '');
 
@@ -504,6 +521,7 @@
 
     Object.keys(strips).forEach(function (key) { if (!seen[key]) { strips[key].el.remove(); delete strips[key]; } });
     stripsEl.classList.toggle('nogc', !cfg.gainCheck);
+    stripsEl.classList.toggle('hasph', anyPhoto);
     emptyEl.classList.toggle('hide', visible > 0);
     $('#emptyMsg').textContent = !total ? (s.configurable ? 'No receivers yet.' : 'No receivers configured.') : 'No transmitters linked. Idle channels are hidden (Settings > Mixer).';
     $('#emptyBtn').classList.toggle('hide', !!total || !s.configurable);
@@ -529,6 +547,53 @@
     if (statusEl._h !== html) { statusEl._h = html; statusEl.innerHTML = html; }
   }
 
+  // ---------- pictures and presets (used by Channels and Presets) ----------
+  function resizePhoto(file) {                         // centre-crop to a small square JPEG
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function () {
+        var S = 256, cv = document.createElement('canvas'), w = img.naturalWidth, h = img.naturalHeight, m = Math.min(w, h);
+        cv.width = cv.height = S;
+        cv.getContext('2d').drawImage(img, (w - m) / 2, (h - m) / 2, m, m, 0, 0, S, S);
+        URL.revokeObjectURL(url); resolve(cv.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('bad image')); };
+      img.src = url;
+    });
+  }
+  var PHOTO_ROW = '<div class="sl"><b>Photo</b><span>Shown on the mixer strip</span></div><div class="sc"><span class="thumb"></span><button class="phB">Choose…</button><button class="phX danger">Remove</button><input type="file" accept="image/*" class="hide"></div>';
+  function bindPhoto(row, target) {                    // target() -> { receiver, channel } or { preset }
+    var f = $('input[type=file]', row), o = { thumb: $('.thumb', row), choose: $('.phB', row), remove: $('.phX', row), photo: undefined };
+    o.choose.onclick = function () { f.click(); };
+    f.onchange = function () {
+      var file = f.files && f.files[0]; f.value = '';
+      if (!file) return;
+      o.choose.disabled = true;
+      resizePhoto(file).then(function (data) {
+        return api('api/photo', Object.assign({ data: data }, target())).then(function (j) { report(j, 'Could not save the picture'); });
+      }, function () { toast('That picture could not be read'); }).then(function () { o.choose.disabled = false; });
+    };
+    o.remove.onclick = function () { api('api/photo', Object.assign({ data: null }, target())).then(function (j) { report(j, 'Could not remove it'); }); };
+    return o;
+  }
+  function paintThumb(o, photo, label) {
+    if (o.photo !== photo) { o.photo = photo; o.thumb.style.backgroundImage = photo ? 'url(photos/' + photo + '.jpg)' : ''; }
+    o.thumb.textContent = photo ? '' : String(label || '?').charAt(0).toUpperCase();
+    o.remove.classList.toggle('hide', !photo);
+  }
+  function presetList() { return (snap && snap.presets) || []; }
+  function presetById(id) { return presetList().filter(function (p) { return p.id === id; })[0]; }
+  function presetSig(s) { return (s.presets || []).map(function (p) { return p.id + ':' + p.name; }).join('|'); }
+  function fillPresetSelect(sel, list) {
+    var keep = sel.value;
+    sel.innerHTML = '<option value="">Choose preset…</option>' + list.map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(p.name) + '</option>'; }).join('');
+    sel.value = keep; if (sel.value !== keep) sel.value = '';
+  }
+  function chanNow(rxId, ch) {
+    var rx = snap && snap.receivers.filter(function (r) { return r.id === rxId; })[0];
+    return { rx: rx, c: rx && rx.channels.filter(function (c) { return c.ch === ch; })[0] };
+  }
+
   // ---------- settings: Channels ----------
   function syncInput(inp, val) {
     if (document.activeElement === inp || inp._dirty || Date.now() < (inp._hold || 0)) return;
@@ -536,7 +601,7 @@
   }
   function buildChannels(s) {
     var root = $('#chPane'); root.innerHTML = ''; chRefs = {};
-    var note = mk('div', 'locknote hide', 'Changes are turned off on this dashboard (read-only in config.json).'); note.id = 'roNote'; root.appendChild(note);
+    var note = mk('div', 'locknote hide', 'Changes are turned off on this dashboard (Settings > Control).'); note.id = 'roNote'; root.appendChild(note);
     if (!s.receivers.length) root.appendChild(mk('div', 'note pnote', 'No receivers yet. Add them under Receivers.'));
     s.receivers.forEach(function (rx) {
       var card = mk('div', 'card', '<h2>' + esc(rx.name) + '</h2>');
@@ -547,6 +612,12 @@
         var rOut = mk('div', 'set', '<div class="sl"><b>Output level</b><span>Mic or line level at the receiver\'s output</span></div><div class="sc"><div class="seg"><button data-o="MIC">Mic</button><button data-o="LINE">Line</button></div></div>');
         var rFr = mk('div', 'set', '<div class="sl"><b>Frequency</b><span>MHz. The transmitter drops until it is IR-synced again</span></div><div class="sc"><input class="txt frI" inputmode="decimal" autocomplete="off" aria-label="Frequency in MHz"><button class="frB">Set</button></div>');
         card.appendChild(head); card.appendChild(rName); card.appendChild(rOut); card.appendChild(rFr);
+        var rPh, rPre;
+        if (s.configurable) {
+          rPh = mk('div', 'set', PHOTO_ROW);
+          rPre = mk('div', 'set', '<div class="sl"><b>Preset</b><span>Load a saved mic onto this channel, or save this one</span></div><div class="sc"><select class="preS" aria-label="Preset"></select><button class="preL">Load</button><button class="preSv">Save as preset</button></div>');
+          card.appendChild(rPh); card.appendChild(rPre);
+        }
         var r = chRefs[key] = { rx: rx.id, ch: c.ch, head: head, nameI: $('.nmI', rName), nameB: $('.nmB', rName), outB: $$('.seg button', rOut), freqI: $('.frI', rFr), freqB: $('.frB', rFr) };
         [r.nameI, r.freqI].forEach(function (i) { i.addEventListener('input', function () { i._dirty = true; }); });
         function setName() {
@@ -565,12 +636,35 @@
         }
         r.freqB.onclick = setFreq;
         r.freqI.addEventListener('keydown', function (e) { if (e.key === 'Enter') setFreq(); });
+        if (s.configurable) {
+          r.ph = bindPhoto(rPh, function () { return { receiver: rx.id, channel: c.ch }; });
+          r.preS = $('.preS', rPre); r.preL = $('.preL', rPre); r.preSv = $('.preSv', rPre); r.presetSig = null;
+          r.preS.onchange = function () { r.preL.disabled = !r.preS.value || !snap.canControl || !(chanNow(r.rx, r.ch).rx || {}).online; };
+          r.preL.onclick = function () {
+            var p = presetById(r.preS.value), now = chanNow(r.rx, r.ch); if (!p || !now.c) return;
+            var msg = 'Load "' + p.name + '" onto ' + now.rx.name + ', channel ' + r.ch + '?\n\nThis sets the name, gain and output level' + (p.freq && Math.abs(p.freq - now.c.freq) > 0.0005 ? ', and changes the frequency to ' + p.freq.toFixed(3) + ' MHz. The transmitter will lose its link until it is IR-synced.' : '.');
+            if (!confirm(msg)) return;
+            api('api/presets', { action: 'apply', id: p.id, receiver: r.rx, channel: r.ch }).then(function (j) { report(j, 'Could not load the preset'); });
+          };
+          r.preSv.onclick = function () {
+            var now = chanNow(r.rx, r.ch);
+            var name = prompt('Save this channel as a preset.\nName (up to 8 characters):', (now.c && now.c.name) || '');
+            if (name === null) return; name = name.trim().slice(0, 8);
+            if (!name) { toast('A preset needs a name'); return; }
+            var dup = presetList().filter(function (p) { return p.name.toLowerCase() === name.toLowerCase(); })[0];
+            if (dup && !confirm('A preset called "' + dup.name + '" already exists. Replace it?')) return;
+            api('api/presets', { action: 'save', receiver: r.rx, channel: r.ch, name: name }).then(function (j) {
+              report(j, 'Could not save the preset');
+              if (j.ok) { r.preSv.textContent = 'Saved'; setTimeout(function () { r.preSv.textContent = 'Save as preset'; }, 1500); }
+            });
+          };
+        }
       });
       root.appendChild(card);
     });
   }
   function updateChannels(s) {
-    var sig = s.receivers.map(function (r) { return r.id + ':' + r.channels.length; }).join('|');
+    var sig = (s.configurable ? 'c' : 'r') + s.receivers.map(function (r) { return r.id + ':' + r.channels.length; }).join('|');
     if (sig !== chSig) { chSig = sig; buildChannels(s); }
     $('#roNote').classList.toggle('hide', !!s.canControl);
     s.receivers.forEach(function (rx) {
@@ -582,9 +676,71 @@
         r.outB.forEach(function (b) { b.classList.toggle('on', b.dataset.o === c.out); });
         [r.nameI, r.nameB, r.freqI, r.freqB].forEach(function (e) { e.disabled = !s.canControl || !rx.online; });
         r.outB.forEach(function (b) { b.disabled = !s.canControl || !rx.online; });
+        if (r.ph) {
+          paintThumb(r.ph, c.photo, c.name);
+          var ps = presetSig(s);
+          if (r.presetSig !== ps) { r.presetSig = ps; fillPresetSelect(r.preS, s.presets || []); }
+          r.preL.disabled = !r.preS.value || !s.canControl || !rx.online;
+          r.preSv.disabled = !rx.online;
+        }
       });
     });
   }
+
+  // ---------- settings: Presets ----------
+  function buildPresets(s) {
+    var root = $('#prPane'); root.innerHTML = '';
+    if (!s.presets.length) root.appendChild(mk('div', 'note pnote', 'No presets yet.'));
+    s.presets.forEach(function (p) {
+      var card = mk('div', 'card', '<h2></h2>');
+      $('h2', card).textContent = p.name;
+      function upd(fields, fail) { return api('api/presets', Object.assign({ action: 'update', id: p.id }, fields)).then(function (j) { report(j, fail || 'Could not change the preset'); return j; }); }
+      var rN = mk('div', 'set first', '<div class="sl"><b>Name</b><span>Up to 8 characters. Becomes the channel name on the receiver</span></div><div class="sc"><input class="txt" maxlength="8" spellcheck="false" autocomplete="off" aria-label="Preset name"><button>Set</button></div>');
+      var nI = $('input', rN); nI.value = p.name;
+      function setName() { var v = nI.value.trim(); if (!v) { toast('A preset needs a name'); return; } upd({ name: v }); }
+      $('button', rN).onclick = setName; nI.addEventListener('keydown', function (e) { if (e.key === 'Enter') setName(); });
+      var rP = mk('div', 'set', PHOTO_ROW), ph = bindPhoto(rP, function () { return { preset: p.id }; });
+      paintThumb(ph, p.photo, p.name);
+      var rG = mk('div', 'set', '<div class="sl"><b>Gain</b><span>-18 to +42 dB</span></div><div class="sc"><input class="num" type="number" inputmode="numeric" step="1" aria-label="Gain"><span class="to">dB</span></div>');
+      var gI = $('input', rG); gI.value = p.gain;
+      gI.addEventListener('change', function () {
+        var v = parseInt(gI.value, 10);
+        if (!isFinite(v) || v < GMIN || v > GMAX) { toast('Enter a gain from ' + GMIN + ' to ' + GMAX); gI.value = p.gain; return; }
+        upd({ gain: v });
+      });
+      var rO = mk('div', 'set', '<div class="sl"><b>Output level</b><span>Mic or line level at the receiver\'s output</span></div><div class="sc"><div class="seg"><button data-o="MIC">Mic</button><button data-o="LINE">Line</button></div></div>');
+      $$('button', rO).forEach(function (b) { b.classList.toggle('on', b.dataset.o === p.output); b.onclick = function () { upd({ output: b.dataset.o }); }; });
+      var rF = mk('div', 'set', '<div class="sl"><b>Frequency</b><span>MHz. Leave blank to keep whatever the channel is on</span></div><div class="sc"><input class="txt" inputmode="decimal" autocomplete="off" aria-label="Frequency in MHz"><button>Set</button></div>');
+      var fI = $('input', rF); fI.value = p.freq ? p.freq.toFixed(3) : '';
+      function setFreq() {
+        var t = fI.value.trim().replace(',', '.');
+        if (t === '') { upd({ freq: '' }); return; }
+        var n = parseFloat(t);
+        if (!isFinite(n)) { toast('Enter the frequency in MHz, for example 606.025'); return; }
+        upd({ freq: n });
+      }
+      $('button', rF).onclick = setFreq; fI.addEventListener('keydown', function (e) { if (e.key === 'Enter') setFreq(); });
+      var rD = mk('div', 'set', '<div class="sl"><b>Delete preset</b><span>Channels already set from it are not changed</span></div><div class="sc"><button class="danger">Delete</button></div>');
+      $('button', rD).onclick = function () {
+        if (!confirm('Delete the preset "' + p.name + '"?')) return;
+        api('api/presets', { action: 'remove', id: p.id }).then(function (j) { report(j, 'Could not delete it'); });
+      };
+      [rN, rP, rG, rO, rF, rD].forEach(function (e) { card.appendChild(e); });
+      root.appendChild(card);
+    });
+  }
+  function updatePresets(s) {
+    var note = s.demo === 'preview' ? 'Preview: this page is not connected to a LiveMic server, so presets cannot be saved here.'
+      : s.demo ? 'Demo mode: presets are saved by a real LiveMic setup, not the simulated receivers.'
+      : !s.configWritable ? 'Presets cannot be saved here because the config folder is read-only.' : '';
+    $('#prNote').textContent = note; $('#prNote').classList.toggle('hide', !note);
+    $('#prMgmt').classList.toggle('hide', !s.configurable);
+    if (!s.configurable) return;
+    var sig = JSON.stringify(s.presets || []);
+    var a = document.activeElement;
+    if (sig !== prSig && !(a && (a.tagName === 'INPUT' || a.tagName === 'SELECT') && $('#prPane').contains(a))) { prSig = sig; buildPresets(s); }
+  }
+  $('#prNew').onclick = function () { api('api/presets', { action: 'create' }).then(function (j) { report(j, 'Could not add a preset'); }); };
 
   // ---------- settings: Receivers (search, add, edit, remove, diagnostics) ----------
   var scan = { timer: null, last: null, sig: '' };
@@ -665,13 +821,14 @@
     else startSearch();
   };
   $('#scRange').addEventListener('keydown', function (e) { if (e.key === 'Enter') startSearch(); });
-  var adCh = 2;
-  $$('#adCh button').forEach(function (b) { b.onclick = function () { adCh = +b.dataset.v; $$('#adCh button').forEach(function (x) { x.classList.toggle('on', x === b); }); }; });
+  var adCh = 'auto';
+  $$('#adCh button').forEach(function (b) { b.onclick = function () { adCh = b.dataset.v === 'auto' ? 'auto' : +b.dataset.v; $$('#adCh button').forEach(function (x) { x.classList.toggle('on', x === b); }); }; });
   $('#adGo').onclick = function () {
+    var go = $('#adGo'); go.disabled = true; go.textContent = adCh === 'auto' ? 'Detecting…' : 'Adding…';
     api('api/receivers', { action: 'add', name: $('#adName').value, host: $('#adHost').value, channels: adCh }).then(function (j) {
       report(j, 'Could not add it');
       if (j.ok) { $('#adHost').value = ''; $('#adName').value = ''; }
-    });
+    }).then(function () { go.disabled = false; go.textContent = 'Add receiver'; });
   };
   $('#adHost').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('#adGo').click(); });
 
@@ -686,7 +843,7 @@
       if (s.configurable) {
         var rName = mk('div', 'set', '<div class="sl"><b>Name</b><span>How this receiver is labelled here</span></div><div class="sc"><input class="txt wide" maxlength="24" autocomplete="off" aria-label="Receiver name"><button>Set</button></div>');
         var rAddr = mk('div', 'set', '<div class="sl"><b>Address</b><span>IP address or host name</span></div><div class="sc"><input class="txt wide" spellcheck="false" autocomplete="off" aria-label="Receiver address"><button>Set</button></div>');
-        var rCh = mk('div', 'set', '<div class="sl"><b>Channels</b><span>SLXD4: 1 &middot; SLXD4D: 2 &middot; SLXD4Q: 4</span></div><div class="sc"><div class="seg"><button data-v="1">1</button><button data-v="2">2</button><button data-v="4">4</button></div></div>');
+        var rCh = mk('div', 'set', '<div class="sl"><b>Channels</b><span>SLXD4: 1 &middot; SLXD4D: 2 &middot; SLXD4Q: 4. Detect reads it from the receiver</span></div><div class="sc"><div class="seg"><button data-v="1">1</button><button data-v="2">2</button><button data-v="4">4</button></div><button class="chA">Detect</button></div>');
         card.appendChild(rName); card.appendChild(rAddr); card.appendChild(rCh);
         r.nameI = $('input', rName); r.addrI = $('input', rAddr); r.chB = $$('.seg button', rCh);
         [r.nameI, r.addrI].forEach(function (i) { i.addEventListener('input', function () { i._dirty = true; }); });
@@ -694,6 +851,7 @@
         function setAddr() { r.addrI._dirty = false; r.addrI._hold = Date.now() + 2000; api('api/receivers', { action: 'update', id: rx.id, host: r.addrI.value }).then(function (j) { report(j, 'Could not change the address'); }); }
         $('button', rName).onclick = setName; r.nameI.addEventListener('keydown', function (e) { if (e.key === 'Enter') setName(); });
         $('button', rAddr).onclick = setAddr; r.addrI.addEventListener('keydown', function (e) { if (e.key === 'Enter') setAddr(); });
+        $('.chA', rCh).onclick = function () { var d = this; d.disabled = true; api('api/receivers', { action: 'update', id: rx.id, channels: 'auto' }).then(function (j) { report(j, 'Could not detect the channels'); d.disabled = false; }); };
         r.chB.forEach(function (b) { b.onclick = function () { api('api/receivers', { action: 'update', id: rx.id, channels: +b.dataset.v }).then(function (j) { report(j, 'Could not change the channels'); }); }; });
       }
       rx.channels.forEach(function (c) {
@@ -757,6 +915,7 @@
   }
   function updateSettings(s) {
     if (subPane === 'channels') updateChannels(s);
+    else if (subPane === 'presets') updatePresets(s);
     else if (subPane === 'receivers') updateReceivers(s);
     else {
       $$('#roSeg button').forEach(function (b) { b.classList.toggle('on', (b.dataset.v === 'ro') === !!s.readOnly); b.disabled = !s.configurable; });
@@ -770,7 +929,7 @@
       $('#verVal').textContent = s.version || '';
       var m = s.demo === 'preview' ? 'Preview' : s.demo ? 'Demo' : 'Live';
       $('#modeVal').textContent = m;
-      $('#modeNote').textContent = m === 'Live' ? 'Talking to your receivers' : m === 'Demo' ? 'Simulated receivers. Add yours to config.json to go live' : 'Simulated. No dashboard server was found at this address';
+      $('#modeNote').textContent = m === 'Live' ? 'Talking to your receivers' : m === 'Demo' ? 'Simulated receivers. Start LiveMic without --demo and add yours under Receivers' : 'Simulated. No dashboard server was found at this address';
     }
   }
   function onCfgChanged() {
@@ -862,7 +1021,7 @@
   function startPreview() {
     mode = 'preview';
     sim = SlxSim.create();
-    function frame() { sim.tick(0.25); var s = sim.snapshot(); s.demo = 'preview'; s.canControl = true; s.pinRequired = false; s.version = '0.4.0'; render(s); }
+    function frame() { sim.tick(0.25); var s = sim.snapshot(); s.demo = 'preview'; s.canControl = true; s.pinRequired = false; s.version = '0.5.0'; render(s); }
     frame(); setInterval(frame, 250);
   }
 

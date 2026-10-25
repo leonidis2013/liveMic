@@ -2,7 +2,7 @@
 
 Web dashboard for monitoring and controlling Shure SLX-D receivers (SLXD4 and SLXD4D) from any browser on your network. Part of the Live series.
 
-Version 0.4.0
+Version 0.5.0
 
 ## The mixer
 
@@ -10,11 +10,18 @@ Each channel is a vertical strip: level meter and gain fader side by side, a gai
 
 Everything you rarely touch lives in Settings (gear icon, top right; it turns into **Done**), laid out like LivePi's Setup page:
 
-- **Channels**: name, output level (mic / line) and frequency for every channel
+- **Channels**: name, output level (mic / line), frequency, photo and preset for every channel
+- **Presets**: saved mics you can load onto any channel
 - **Receivers**: connection status, address, model, firmware, and per-antenna RF for each receiver
 - **Settings**: theme (Auto / Dark / Light), show or hide idle channels, gain check range, alert thresholds, control and PIN status, version
 
-Display, gain check and alert settings are saved per device (in the browser). Names, output level and frequency are written to the receiver.
+Display, gain check and alert settings are saved per device (in the browser). Names, output level and frequency are written to the receiver. Photos and presets are saved on the LiveMic server, so every device sees the same ones.
+
+## Photos and presets
+
+- **Photo**: in Settings > Channels, tap Choose on a channel and pick a picture (on a phone you can take one). It is cropped to a small square and shown above the channel name on the mixer. Once any channel has a photo, every strip reserves the space and channels without one show their first letter.
+- **Presets**: a preset is a saved mic: name (up to 8 characters), photo, gain, output level and frequency. Under Channels, **Save as preset** stores what that channel is set to right now (saving under an existing name replaces it). **Load** puts a preset onto any channel of any receiver, and sets that channel's photo too. Under Presets you can edit, add or delete them. A blank frequency means "leave the frequency alone". Loading a preset with a different frequency asks first, because the transmitter loses its link until it is IR-synced.
+- Photos and presets are stored next to the config file (`/data/photos` in Docker), so they survive updates. Read-only mode blocks loading presets; the PIN protects all of it.
 
 ## Gain check
 
@@ -31,7 +38,7 @@ Browsers cannot open raw TCP connections, so a small bridge (`server.js`) connec
 Nothing needs editing by hand. Open the dashboard and go to **Settings (gear) > Receivers**:
 
 - **Search the network** looks for SLX-D receivers in an address range (it suggests your own network, for example `192.168.1.0/24`; type another range if your receivers are on a different network or VLAN). It tries port 2202 on every address, then asks each device that answers for its model, firmware and name. Tap **Add** on a receiver, or **Add all**. If a device has port 2202 open but does not answer, it is flagged: on the receiver, set Advanced Settings > Controller Access to Allow, then search again.
-- **Add by address** adds a receiver by IP address or host name.
+- **Add by address** adds a receiver by IP address or host name. Channels is set to **Auto** by default: LiveMic asks the receiver for its model (SLXD4 = 1 channel, SLXD4D = 2, SLXD4Q = 4) and its name. Pick 1, 2 or 4 yourself only if the receiver cannot be reached. **Detect** on a receiver's card re-reads the channel count.
 - Each receiver can be renamed, moved to a new address, switched between 1, 2 or 4 channels, or removed.
 - **Settings > Control** sets a control PIN (stored hashed) and a read-only mode.
 
