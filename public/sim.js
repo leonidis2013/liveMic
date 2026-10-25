@@ -40,6 +40,17 @@
         return { ok: false, error: 'Frequency must be between 470.000 and 960.000 MHz' };
       return { ok: true, value: khz };
     }
+    if (action === 'group') {           // "6,100": group and channel from the receiver's table
+      var g = String(value == null ? '' : value).replace(/\s+/g, '');
+      if (!/^\d{1,3},\d{1,3}$/.test(g)) return { ok: false, error: 'Group and channel look like 6,100' };
+      return { ok: true, value: g };
+    }
+    if (action === 'devname') {         // the receiver's own 8-character Device ID
+      var d = String(value == null ? '' : value).replace(/[^A-Za-z0-9 _.\-]/g, '').trim().slice(0, 8);
+      if (!d) return { ok: false, error: 'The name needs 1 to 8 letters, numbers, spaces or - _ .' };
+      return { ok: true, value: d };
+    }
+    if (action === 'identify') return { ok: true, value: true };
     return { ok: false, error: 'Unknown action' };
   }
 
@@ -111,7 +122,7 @@
         demo: true,
         receivers: receivers.map(function (rx) {
           return {
-            id: rx.id, name: rx.name, host: rx.host, model: rx.model, fw: rx.fw, lock: rx.lock,
+            id: rx.id, name: rx.name, host: rx.host, model: rx.model, fw: rx.fw, lock: rx.lock, band: 'G55', deviceId: rx.devId || rx.name.slice(0, 8),
             status: 'ok', online: true,
             channels: rx.channels.map(function (c) {
               var out = {};
@@ -127,6 +138,11 @@
     function command(rxId, ch, action, value) {
       var rx = receivers.filter(function (r) { return r.id === rxId; })[0];
       if (!rx) return { ok: false, error: 'Unknown receiver' };
+      if (action === 'identify' || action === 'devname') {
+        var dv = normalize(action, value); if (!dv.ok) return dv;
+        if (action === 'devname') rx.devId = dv.value;
+        return { ok: true };
+      }
       var c = rx.channels.filter(function (x) { return x.ch === Number(ch); })[0];
       if (!c) return { ok: false, error: 'Unknown channel' };
       var v = normalize(action, value);
@@ -134,7 +150,8 @@
       if (action === 'gain') c.gain = v.value;
       else if (action === 'name') c.name = v.value;
       else if (action === 'output') c.out = v.value;
-      else if (action === 'freq') c.freq = v.value / 1000;
+      else if (action === 'freq') { c.freq = v.value / 1000; c.group = '--,--'; }
+      else if (action === 'group') c.group = v.value;
       return { ok: true };
     }
 

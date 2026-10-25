@@ -9,10 +9,11 @@ const net = require('net');
 function createFake(port, opts = {}) {
   const model = opts.model || 'SLXD4D';
   const ch = [
-    { name: 'Pastor', gain: 30, out: 'MIC', freq: 606025, bars: 4, mins: 312, rssiA: 68, rssiB: 64 },
-    { name: 'Vocal 1', gain: 28, out: 'LINE', freq: 610450, bars: 1, mins: 25, rssiA: 30, rssiB: 28 }
+    { name: 'Pastor', group: '01,01', gain: 30, out: 'MIC', freq: 606025, bars: 4, mins: 312, rssiA: 68, rssiB: 64 },
+    { name: 'Vocal 1', group: '01,02', gain: 28, out: 'LINE', freq: 610450, bars: 1, mins: 25, rssiA: 30, rssiB: 28 }
   ];
   const log = [];
+  let devId = 'Church Rack';
   const server = net.createServer((sock) => {
     sock.setEncoding('ascii');
     let buf = '', timer = null;
@@ -25,7 +26,7 @@ function createFake(port, opts = {}) {
       const c = ch[i - 1];
       return `< REP ${i} CHAN_NAME {${c.name.padEnd(31)}} >< REP ${i} AUDIO_GAIN ${p3(c.gain)} >` +
         `< REP ${i} AUDIO_OUT_LVL_SWITCH ${c.out} >< REP ${i} FREQUENCY ${String(c.freq).padStart(7, '0')} >` +
-        `< REP ${i} GROUP_CHANNEL 01,0${i} >`;
+        `< REP ${i} GROUP_CHANNEL {${c.group}} >`;
     };
     sock.on('data', (d) => {
       buf += d;
@@ -42,7 +43,8 @@ function createFake(port, opts = {}) {
         if (kind === 'GET') {
           if (n == null) {
             if (key === 'MODEL') out(`< REP MODEL {${model}} >`);
-            if (key === 'DEVICE_ID') out('< REP DEVICE_ID {Church Rack               } >');
+            if (key === 'DEVICE_ID') out(`< REP DEVICE_ID {${devId.padEnd(31)}} >`);
+            if (key === 'RF_BAND') out('< REP RF_BAND {G55} >');
             if (key === 'FW_VER') out('< REP FW_VER {2.1.4} >');
             if (key === 'LOCK_STATUS') out('< REP LOCK_STATUS OFF >');
             continue;
@@ -55,6 +57,7 @@ function createFake(port, opts = {}) {
             if (key === 'AUDIO_GAIN') out(`< REP ${i} AUDIO_GAIN ${p3(c.gain)} >`);
             if (key === 'AUDIO_OUT_LVL_SWITCH') out(`< REP ${i} AUDIO_OUT_LVL_SWITCH ${c.out} >`);
             if (key === 'FREQUENCY') out(`< REP ${i} FREQUENCY ${String(c.freq).padStart(7, '0')} >`);
+            if (key === 'GROUP_CHANNEL') out(`< REP ${i} GROUP_CHANNEL {${c.group}} >`);
             if (key === 'TX_MODEL') out(`< REP ${i} TX_MODEL SLXD2 >`);
             if (key === 'TX_BATT_BARS') out(`< REP ${i} TX_BATT_BARS ${p3(c.bars)} >`);
             if (key === 'TX_BATT_MINS') out(`< REP ${i} TX_BATT_MINS ${String(c.mins).padStart(5, '0')} >`);
@@ -69,10 +72,12 @@ function createFake(port, opts = {}) {
             }, 100);
             continue;
           }
+          if (n == null && key === 'DEVICE_ID') { devId = rest.replace(/[{}]/g, '').trim(); continue; }
           const c = ch[n - 1]; if (!c) continue;
+          if (key === 'GROUP_CHANNEL') { c.group = rest.replace(/[{}]/g, '').trim(); out(`< REP ${n} GROUP_CHANNEL {${c.group}} >`); }
           if (key === 'AUDIO_GAIN') { c.gain = Number(rest); out(`< REP ${n} AUDIO_GAIN ${p3(c.gain)} >`); }
           if (key === 'CHAN_NAME') { c.name = rest.replace(/[{}]/g, ''); out(`< REP ${n} CHAN_NAME {${c.name.padEnd(31)}} >`); }
-          if (key === 'AUDIO_OUT_LVL_SWITCH') { c.out = rest; out(`< REP ${n} AUDIO_OUT_LVL_SWITCH ${c.out} >`); }
+          if (key === 'AUDIO_OUT_LVL_SWITCH' && !opts.rejectOutput) { c.out = rest; out(`< REP ${n} AUDIO_OUT_LVL_SWITCH ${c.out} >`); }
           if (key === 'FREQUENCY') { c.freq = Number(rest); out(`< REP ${n} FREQUENCY ${String(c.freq).padStart(7, '0')} >`); }
         }
       }
@@ -84,4 +89,4 @@ function createFake(port, opts = {}) {
 }
 
 module.exports = { createFake };
-if (require.main === module) createFake(Number(process.argv[2]) || 2202).then(() => console.log('fake SLX-D listening'));
+if (require.main === module) createFake(Number(process.argv[2]) || 2202, { rejectOutput: process.argv[3] === 'reject' }).then(() => console.log('fake SLX-D listening'));

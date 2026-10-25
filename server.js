@@ -105,7 +105,7 @@ class Receiver {
     this.port = conf.port || 2202;
     this.nCh = Math.max(1, Math.min(4, Number(conf.channels) || 2));
     this.photos = conf.photos || {};
-    this.model = ''; this.fw = ''; this.lock = '';
+    this.model = ''; this.fw = ''; this.lock = ''; this.band = ''; this.devId = '';
     this.channels = [];
     for (let i = 1; i <= this.nCh; i++) {
       this.channels.push({
@@ -166,7 +166,7 @@ class Receiver {
   }
 
   poll() {
-    ['MODEL', 'FW_VER', 'LOCK_STATUS'].forEach((k) => this.send(`< GET ${k} >`));
+    ['MODEL', 'FW_VER', 'LOCK_STATUS', 'RF_BAND', 'DEVICE_ID'].forEach((k) => this.send(`< GET ${k} >`));
     this.send('< GET 0 ALL >');
     for (let c = 1; c <= this.nCh; c++) {
       ['CHAN_NAME', 'AUDIO_GAIN', 'AUDIO_OUT_LVL_SWITCH', 'GROUP_CHANNEL', 'FREQUENCY',
@@ -212,6 +212,8 @@ class Receiver {
       if (key === 'MODEL') this.model = unbrace(val);
       else if (key === 'FW_VER') this.fw = unbrace(val);
       else if (key === 'LOCK_STATUS') this.lock = unbrace(val);
+      else if (key === 'RF_BAND') this.band = unbrace(val);
+      else if (key === 'DEVICE_ID') this.devId = unbrace(val);
       return;
     }
     switch (key) {
@@ -241,8 +243,23 @@ class Receiver {
     else if (action === 'name') cmd = `< SET ${c.ch} CHAN_NAME {${v.value}} >`;
     else if (action === 'output') cmd = `< SET ${c.ch} AUDIO_OUT_LVL_SWITCH ${v.value} >`;
     else if (action === 'freq') cmd = `< SET ${c.ch} FREQUENCY ${String(v.value).padStart(7, '0')} >`;
+    else if (action === 'group') cmd = `< SET ${c.ch} GROUP_CHANNEL {${v.value}} >`;
     else return { ok: false, error: 'Unknown action' };
     this.send(cmd);
+    // ask what the receiver ended up with, so the page shows the truth (it may refuse a change)
+    const back = { output: ['AUDIO_OUT_LVL_SWITCH'], freq: ['FREQUENCY', 'GROUP_CHANNEL'], group: ['GROUP_CHANNEL', 'FREQUENCY'] }[action];
+    if (back) back.forEach((k) => this.send(`< GET ${c.ch} ${k} >`));
+    return { ok: true };
+  }
+
+  /** Receiver-wide actions: flash the front panel, or set the receiver's own Device ID. */
+  deviceCommand(action, value) {
+    if (!this.connected) return { ok: false, error: 'Receiver is not connected' };
+    const v = Sim.normalize(action, value);
+    if (!v.ok) return v;
+    if (action === 'identify') this.send('< SET FLASH ON >');
+    else if (action === 'devname') { this.send(`< SET DEVICE_ID {${v.value}} >`); this.send('< GET DEVICE_ID >'); }
+    else return { ok: false, error: 'Unknown action' };
     return { ok: true };
   }
 
@@ -250,7 +267,7 @@ class Receiver {
     const st = this.status();
     return {
       id: this.id, name: this.name, host: this.host + (this.port !== 2202 ? ':' + this.port : ''),
-      model: this.model, fw: this.fw, lock: this.lock,
+      model: this.model, fw: this.fw, lock: this.lock, band: this.band, deviceId: this.devId,
       status: st, online: st === 'ok',
       channels: this.channels.map((c) => Object.assign({}, c, { photo: this.photos[c.ch] || null }))
     };
@@ -308,6 +325,7 @@ function runCommand(body) {
   if (DEMO) return sim.command(receiver, channel, action, value);
   const rx = receivers.find((r) => r.id === receiver);
   if (!rx) return { ok: false, error: 'Unknown receiver' };
+  if (action === 'identify' || action === 'devname') return rx.deviceCommand(action, value);
   return rx.command(channel, action, value);
 }
 
