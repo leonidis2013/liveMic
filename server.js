@@ -9,6 +9,7 @@
 'use strict';
 
 const http = require('http');
+const https = require('https');
 const net = require('net');
 const fs = require('fs');
 const path = require('path');
@@ -309,6 +310,8 @@ if (DEMO) {
 function snapshot() {
   const base = DEMO ? sim.snapshot() : { demo: false, receivers: receivers.map((r) => r.snapshot()) };
   base.version = pkg.version;
+  base.inDocker = IN_DOCKER;
+  base.update = { latest: upd.latest, available: !!upd.latest && newer(upd.latest, pkg.version), checkedAt: upd.checkedAt, failed: upd.failed, enabled: UPDATE_CHECK && !DEMO, image: IMAGE + ':' + upd.latest };
   base.presets = DEMO ? [] : (cfg.presets || []).map((p) => Object.assign({}, p));
   base.canControl = !cfg.readOnly;
   base.readOnly = !!cfg.readOnly;
@@ -587,6 +590,48 @@ function changeSettings(body) {
   return r;
 }
 
+// ---------- is there a newer version? (reads the version number from GitHub; changes nothing) ----------
+const UPDATE_URL = process.env.LIVEMIC_UPDATE_URL || 'https://raw.githubusercontent.com/leonidis2013/LiveMic/main/package.json';
+const UPDATE_CHECK = process.env.LIVEMIC_NO_UPDATE_CHECK !== '1';
+const IMAGE = 'ghcr.io/leonidis2013/livemic';
+let upd = { latest: '', checkedAt: 0, failed: false };
+
+function newer(a, b) {                                  // is version a newer than b?  (major.minor.patch)
+  const pa = String(a).split('.').map(Number), pb = String(b).split('.').map(Number);
+  for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0); }
+  return false;
+}
+
+function checkUpdate() {
+  return new Promise((resolve) => {
+    let done = false;
+    const end = (latest) => {
+      if (done) return; done = true;
+      upd = latest ? { latest, checkedAt: Date.now(), failed: false } : { latest: upd.latest, checkedAt: Date.now(), failed: true };
+      resolve(!!latest);
+    };
+    try {
+      const lib = UPDATE_URL.startsWith('https:') ? https : http;
+      const req = lib.get(UPDATE_URL, { timeout: 6000, headers: { 'user-agent': 'LiveMic/' + pkg.version } }, (res) => {
+        if (res.statusCode !== 200) { res.resume(); return end(null); }
+        let raw = '';
+        res.setEncoding('utf8');
+        res.on('data', (d) => { raw += d; if (raw.length > 20000) req.destroy(); });
+        res.on('end', () => {
+          try { const v = String(JSON.parse(raw).version || ''); end(/^\d+\.\d+\.\d+$/.test(v) ? v : null); }
+          catch (e) { end(null); }
+        });
+      });
+      req.on('timeout', () => req.destroy());
+      req.on('error', () => end(null));
+    } catch (e) { end(null); }
+  });
+}
+if (UPDATE_CHECK && !DEMO) {
+  setTimeout(checkUpdate, 3000).unref();
+  setInterval(checkUpdate, 6 * 3600 * 1000).unref();
+}
+
 // ---------- searching the network for receivers ----------
 let scanState = { id: 0, running: false, total: 0, done: 0, found: [], range: '' };
 
@@ -675,6 +720,7 @@ const server = http.createServer((req, res) => {
 
   if (req.method === 'POST' && url === '/api/cmd') return postJson(req, res, runCommand);
   if (req.method === 'POST' && url === '/api/receivers') return postJson(req, res, (b) => DEMO ? demoMsg : applyReceivers(b));
+  if (req.method === 'POST' && url === '/api/update-check') return postJson(req, res, () => (UPDATE_CHECK && !DEMO) ? checkUpdate().then((ok) => ({ ok, error: ok ? undefined : 'Could not reach GitHub to check. Is this machine online?' })) : { ok: false, error: 'Update checks are turned off' }, { needPin: false });
   if (req.method === 'POST' && url === '/api/presets') return postJson(req, res, (b) => DEMO ? demoMsg : changePresets(b));
   if (req.method === 'POST' && url === '/api/photo') return postJson(req, res, (b) => DEMO ? demoMsg : setPhoto(b), { limit: 400000 });
   if (req.method === 'POST' && url === '/api/settings') return postJson(req, res, (b) => DEMO ? demoMsg : changeSettings(b));

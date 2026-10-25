@@ -2,7 +2,7 @@
 
 Web dashboard for monitoring and controlling Shure SLX-D receivers (SLXD4 and SLXD4D) from any browser on your network. Part of the Live series.
 
-Version 0.6.1
+Version 0.6.2
 
 ## The mixer
 
@@ -16,6 +16,10 @@ Everything you rarely touch lives in Settings (gear icon, top right; it turns in
 - **Settings**: theme (Auto / Dark / Light), show or hide idle channels, gain check range, alert thresholds, control and PIN status, version
 
 Display, gain check and alert settings are saved per device (in the browser). Names, output level and frequency are written to the receiver. Photos and presets are saved on the LiveMic server, so every device sees the same ones.
+
+## Update notice
+
+LiveMic checks GitHub for a newer version a few seconds after it starts and every six hours after that. When one exists, the top bar shows "Update available" and Settings > About shows the exact image name to use (in TrueNAS: Apps, edit LiveMic, set the image). It only reads a version number and never changes anything itself. Settings > About has a **Check now** button. Set the environment variable `LIVEMIC_NO_UPDATE_CHECK=1` to turn the check off.
 
 ## Group / channel and Mic/Line
 

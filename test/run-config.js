@@ -209,6 +209,26 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     await sleep(500); s = await get('/api/state');
     ok(r.j.ok && s.receivers[0].channels[1].out === 'MIC' && slx.log.includes('GET 2 AUDIO_OUT_LVL_SWITCH'), 'output level change is read back from the receiver');
     r = await post('/api/receivers', { action: 'remove', id: id3 });
+
+    // ---- update notice ----
+    let served = '{"version":"99.0.0"}', code = 200;
+    const gh = require('http').createServer((q, w) => { w.writeHead(code); w.end(served); });
+    await new Promise((res) => gh.listen(18095, '127.0.0.1', res));
+    const upSrv = spawn('node', [path.join(__dirname, '..', 'server.js')], { env: { ...process.env, CONFIG: path.join(dir, 'up', 'config.json'), PORT: '18096', LIVEMIC_UPDATE_URL: 'http://127.0.0.1:18095/package.json' }, stdio: 'ignore' });
+    await sleep(1000);
+    const upGet = async () => (await (await fetch('http://127.0.0.1:18096/api/state')).json()).update;
+    const upCheck = async () => (await (await fetch('http://127.0.0.1:18096/api/update-check', { method: 'POST', body: '{}' })).json());
+    r = await upCheck(); let u = await upGet();
+    ok(r.ok && u.available && u.latest === '99.0.0' && /livemic:99\.0\.0$/.test(u.image), 'a newer version on GitHub is reported, with the image name to use');
+    served = '{"version":"0.0.1"}'; await upCheck(); u = await upGet();
+    ok(!u.available && !u.failed, 'an older or equal version is not an update');
+    served = '{"version":"0.10.0"}'; await upCheck(); u = await upGet();
+    ok(u.available, 'versions compare as numbers (0.10.0 is newer than 0.6.2)');
+    served = 'not json'; r = await upCheck(); u = await upGet();
+    ok(!r.ok && u.failed && u.latest === '0.10.0', 'a bad answer is reported and the last good answer is kept');
+    code = 500; r = await upCheck();
+    ok(!r.ok, 'a server error from GitHub is reported as a failed check');
+    upSrv.kill(); gh.close();
     ulx2.server.close();
   } catch (e) { ok(false, 'test error: ' + e.stack); }
   srv.kill(); slx.server.close();

@@ -263,6 +263,8 @@
       <div class="card">
         <h2>About</h2>
         <div class="set first"><div class="sl"><b>Version</b></div><div class="sc"><span class="val" id="verVal"></span></div></div>
+        <div class="set" id="updRow"><div class="sl"><b>Updates</b><span id="updNote"></span></div><div class="sc"><button id="updBtn">Check now</button></div></div>
+        <div class="set hide" id="updHow"><div class="sl"><b>To update</b><span id="updHowNote"></span></div><div class="sc"><input id="updImg" class="txt wide" readonly spellcheck="false" aria-label="New image name"></div></div>
         <div class="set"><div class="sl"><b>Mode</b><span id="modeNote"></span></div><div class="sc"><span class="val" id="modeVal"></span></div></div>
       </div>
     </div>
@@ -543,6 +545,7 @@
       parts.push('<span class="st ' + c + '"><span class="dot ' + c + '"></span>' + esc(r.name) + ' ' + (r.status === 'connecting' ? 'connecting' : r.status === 'no-data' ? 'no data' : 'offline') + '</span>');
     });
     if (bad.length > 2) parts.push('<span class="st bad">+' + (bad.length - 2) + ' more</span>');
+    if (s.update && s.update.available) parts.push('<span class="st warn" data-upd="1" style="cursor:pointer" title="See how to update"><span class="dot warn"></span>Update available: v' + esc(s.update.latest) + '</span>');
     if (s.demo === 'preview') parts.push('<span class="st warn">Preview, simulated</span>');
     else if (s.demo) parts.push('<span class="st warn">Demo, simulated</span>');
     var html = parts.join('');
@@ -758,6 +761,12 @@
     var a = document.activeElement;
     if (sig !== prSig && !(a && (a.tagName === 'INPUT' || a.tagName === 'SELECT') && $('#prPane').contains(a))) { prSig = sig; buildPresets(s); }
   }
+  $('#updImg').addEventListener('focus', function () { this.select(); });
+  $('#updBtn').onclick = function () {
+    var b = this; b.disabled = true; b.textContent = 'Checking…';
+    api('api/update-check', {}).then(function (j) { report(j, 'Could not check'); }).then(function () { b.disabled = false; b.textContent = 'Check now'; });
+  };
+  statusEl.addEventListener('click', function (e) { if (e.target.closest('[data-upd]')) { showTab(true); showSub('settings'); } });
   $('#prNew').onclick = function () { api('api/presets', { action: 'create' }).then(function (j) { report(j, 'Could not add a preset'); }); };
 
   // ---------- settings: Receivers (search, add, edit, remove, diagnostics) ----------
@@ -954,6 +963,18 @@
       var cn = s.demo === 'preview' ? 'Preview: this page is not connected to a LiveMic server.' : s.demo ? 'Demo mode: control settings apply to a real setup, not the simulated receivers.' : !s.configWritable ? 'Settings cannot be saved here because the config file is read-only.' : '';
       $('#ctlNote').textContent = cn; $('#ctlNote').classList.toggle('hide', !cn);
       $('#verVal').textContent = s.version || '';
+      var u = s.update, un = $('#updNote');
+      $('#updRow').classList.toggle('hide', !u || !u.enabled);
+      if (u && u.enabled) {
+        un.textContent = u.available ? 'Version ' + u.latest + ' is available' : u.failed && !u.latest ? 'Could not reach GitHub to check' : u.latest ? 'You are up to date' : 'Checking…';
+        un.style.color = u.available ? 'var(--warn)' : '';
+      }
+      var showHow = !!(u && u.enabled && u.available);
+      $('#updHow').classList.toggle('hide', !showHow);
+      if (showHow) {
+        $('#updHowNote').textContent = s.inDocker ? 'In TrueNAS, open Apps, edit LiveMic and set the image to this, then save' : 'Download version ' + u.latest + ' from github.com/leonidis2013/LiveMic and restart';
+        $('#updImg').value = s.inDocker ? u.image : 'github.com/leonidis2013/LiveMic';
+      }
       var m = s.demo === 'preview' ? 'Preview' : s.demo ? 'Demo' : 'Live';
       $('#modeVal').textContent = m;
       $('#modeNote').textContent = m === 'Live' ? 'Talking to your receivers' : m === 'Demo' ? 'Simulated receivers. Start LiveMic without --demo and add yours under Receivers' : 'Simulated. No dashboard server was found at this address';
@@ -1048,7 +1069,7 @@
   function startPreview() {
     mode = 'preview';
     sim = SlxSim.create();
-    function frame() { sim.tick(0.25); var s = sim.snapshot(); s.demo = 'preview'; s.canControl = true; s.pinRequired = false; s.version = '0.6.1'; render(s); }
+    function frame() { sim.tick(0.25); var s = sim.snapshot(); s.demo = 'preview'; s.canControl = true; s.pinRequired = false; s.version = '0.6.2'; render(s); }
     frame(); setInterval(frame, 250);
   }
 
