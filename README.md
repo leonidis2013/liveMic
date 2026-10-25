@@ -2,7 +2,7 @@
 
 Web dashboard for monitoring and controlling Shure SLX-D receivers (SLXD4 and SLXD4D) from any browser on your network. Part of the Live series.
 
-Version 0.6.0
+Version 0.6.1
 
 ## The mixer
 

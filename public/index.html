@@ -26,6 +26,7 @@
   header { display:flex; flex-wrap:wrap; gap:14px; align-items:center; padding:10px 14px; padding-top:calc(10px + env(safe-area-inset-top)); margin-bottom:14px;
            background:var(--card); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:10; }
   h1 { font-size:15px; margin:0; letter-spacing:.12em; text-transform:uppercase; font-weight:800; }
+  h1 .ver { font-size:10px; font-weight:600; letter-spacing:.02em; text-transform:none; color:var(--dim); vertical-align:1px; margin-left:2px; }
   h1 small { display:block; font-size:10px; letter-spacing:.04em; color:var(--dim); font-weight:400; text-transform:none; }
   h2 { font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--dim); margin:0 0 10px; font-weight:700; }
   h2::before { content:""; display:inline-block; width:3px; height:11px; background:var(--acc); border-radius:2px; margin-right:7px; vertical-align:-1px; }
@@ -180,7 +181,7 @@
 <body>
 
 <header>
-  <h1>LiveMic<small>wireless mic dashboard</small></h1>
+  <h1>LiveMic <span class="ver" id="hVer"></span><small>wireless mic dashboard</small></h1>
   <div id="status"></div>
   <button id="fsBtn" class="gear" title="Full screen" aria-label="Full screen"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
   <button id="gear" class="gear" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span>Done</span></button>
@@ -459,6 +460,7 @@
   // ---------- render ----------
   function render(s) {
     snap = s; lastMsg = Date.now();
+    var hv = $('#hVer'), vt = s.version ? 'v' + s.version : ''; if (hv.textContent !== vt) hv.textContent = vt;
     document.body.classList.remove('offline');
     var now = Date.now(), seen = {}, alerts = [], total = 0, visible = 0, online = 0, anyPhoto = false;
 
@@ -1046,7 +1048,7 @@
   function startPreview() {
     mode = 'preview';
     sim = SlxSim.create();
-    function frame() { sim.tick(0.25); var s = sim.snapshot(); s.demo = 'preview'; s.canControl = true; s.pinRequired = false; s.version = '0.6.0'; render(s); }
+    function frame() { sim.tick(0.25); var s = sim.snapshot(); s.demo = 'preview'; s.canControl = true; s.pinRequired = false; s.version = '0.6.1'; render(s); }
     frame(); setInterval(frame, 250);
   }
 
