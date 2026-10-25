@@ -9,8 +9,8 @@ const net = require('net');
 function createFake(port, opts = {}) {
   const model = opts.model || 'SLXD4D';
   const ch = [
-    { name: 'Pastor', group: '01,01', gain: 30, out: 'MIC', freq: 606025, bars: 4, mins: 312, rssiA: 68, rssiB: 64 },
-    { name: 'Vocal 1', group: '01,02', gain: 28, out: 'LINE', freq: 610450, bars: 1, mins: 25, rssiA: 30, rssiB: 28 }
+    { name: 'Pastor', group: '01,01', gain: 30, out: 'MIC', freq: 606025, bars: 4, mins: 312, rssiA: 60, rssiB: 56, txm: 'SLXD2' },
+    { name: 'Vocal 1', group: '01,02', gain: 28, out: 'LINE', freq: 610450, bars: 1, mins: 25, rssiA: 30, rssiB: 28, txm: 'UNKNOWN' }
   ];
   const log = [];
   let devId = 'Church Rack';
@@ -58,7 +58,8 @@ function createFake(port, opts = {}) {
             if (key === 'AUDIO_OUT_LVL_SWITCH') out(`< REP ${i} AUDIO_OUT_LVL_SWITCH ${c.out} >`);
             if (key === 'FREQUENCY') out(`< REP ${i} FREQUENCY ${String(c.freq).padStart(7, '0')} >`);
             if (key === 'GROUP_CHANNEL') out(`< REP ${i} GROUP_CHANNEL {${c.group}} >`);
-            if (key === 'TX_MODEL') out(`< REP ${i} TX_MODEL SLXD2 >`);
+            if (key === 'TX_MODEL') out(`< REP ${i} TX_MODEL ${c.txm} >`);
+            if (key === 'RSSI') out(`< REP ${i} RSSI 1 ${p3(c.rssiA)} >< REP ${i} RSSI 2 ${p3(c.rssiB)} >`);
             if (key === 'TX_BATT_BARS') out(`< REP ${i} TX_BATT_BARS ${p3(c.bars)} >`);
             if (key === 'TX_BATT_MINS') out(`< REP ${i} TX_BATT_MINS ${String(c.mins).padStart(5, '0')} >`);
           });
@@ -66,9 +67,9 @@ function createFake(port, opts = {}) {
           if ((n == null || n === 0) && key === 'METER_RATE') {
             clearInterval(timer);
             timer = setInterval(() => {
-              // SAMPLE x ALL qual audBitmap audPeak audRms rfAntStats rfBitmapA rfRssiA rfBitmapB rfRssiB
-              out(`< SAMPLE 1 ALL 005 000 105 090 BB 31 ${p3(ch[0].rssiA)} 31 ${p3(ch[0].rssiB)} >`);
-              out(`< SAMPLE 2 ALL 255 000 000 000 XX 00 000 00 000 >`);
+              // SLX-D: SAMPLE x ALL peak rms rssi
+              out(`< SAMPLE 1 ALL 105 090 ${p3(ch[0].rssiA)} >`);
+              out(`< SAMPLE 2 ALL 000 000 000 >`);
             }, 100);
             continue;
           }

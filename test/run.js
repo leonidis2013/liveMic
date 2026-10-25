@@ -34,8 +34,8 @@ const post = async (u, body, pin) => {
     ok(rx.status === 'ok' && rx.model === 'SLXD4D' && rx.fw === '2.1.4', 'connects, reads model + firmware');
     ok(c1.name === 'Pastor' && c1.gain === 12 && c1.freq === 606.025 && c1.out === 'MIC', 'channel 1 name/gain/freq/output parsed (gain offset 18 removed)');
     ok(c1.battBars === 4 && c1.battMins === 312 && c1.txModel === 'SLXD2', 'battery + transmitter parsed');
-    ok(c1.tx && c1.peak === -15 && c1.rms === -30 && c1.rssiA === -60 && c1.rssiB === -64 && c1.quality === 5, 'SAMPLE metering converted to dBFS / dBm');
-    ok(c2.tx === false && c2.out === 'LINE' && c2.battBars === 1, 'channel 2 idle, line level, 1 battery bar');
+    ok(c1.tx && c1.peak === -15 && c1.rms === -30 && c1.rssiA === -60 && c1.rssiB === -64, 'SLX-D SAMPLE (peak, rms, rssi) converted to dBFS / dBm, transmitter detected from TX_MODEL');
+    ok(c2.tx === false && c2.peak === -120 && c2.out === 'LINE' && c2.battBars === 1, 'channel 2 idle, line level, 1 battery bar');
     ok(s.pinRequired === true, 'PIN is required');
 
     let r = await post('http://127.0.0.1:18080/api/cmd', { receiver: 'rx1', channel: 1, action: 'gain', value: 20 });

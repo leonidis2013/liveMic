@@ -115,6 +115,7 @@ class Receiver {
         quality: 0, tx: false
       });
     }
+    this.antAt = {}; this.badSample = false;
     this.sock = null; this.connected = false; this.everConnected = false; this.dead = false;
     this.lastData = 0; this.buf = ''; this.backoff = 1000;
     this.connect();
@@ -122,7 +123,7 @@ class Receiver {
 
   destroy() {
     this.dead = true;
-    clearInterval(this.pollTimer); clearTimeout(this.reconnTimer);
+    clearInterval(this.pollTimer); clearInterval(this.fastTimer); clearTimeout(this.reconnTimer);
     if (this.sock) this.sock.destroy();
   }
 
@@ -146,7 +147,11 @@ class Receiver {
       console.log(`[${this.name}] connected to ${this.host}:${this.port}`);
       this.poll();
       this.send(`< SET 0 METER_RATE ${String(METER_MS).padStart(5, '0')} >`);
+      for (let n = 1; n <= this.nCh; n++) this.send(`< SET ${n} METER_RATE ${String(METER_MS).padStart(5, '0')} >`);   // in case the receiver wants it per channel
       this.pollTimer = setInterval(() => this.poll(), 30000);
+      this.fastTimer = setInterval(() => {              // transmitter present? and signal per antenna
+        for (let n = 1; n <= this.nCh; n++) { this.send(`< GET ${n} TX_MODEL >`); this.send(`< GET ${n} RSSI 0 >`); }
+      }, 1500);
     });
     s.on('data', (d) => this.onData(d));
     s.on('timeout', () => s.destroy());     // nothing at all for 20 s: reconnect
@@ -154,7 +159,7 @@ class Receiver {
     s.on('close', () => {
       if (this.connected && !this.dead) console.log(`[${this.name}] connection lost`);
       this.connected = false;
-      clearInterval(this.pollTimer);
+      clearInterval(this.pollTimer); clearInterval(this.fastTimer);
       this.channels.forEach((c) => { c.tx = false; c.peak = -120; c.rms = -120; });
       if (this.dead) return;
       this.reconnTimer = setTimeout(() => this.connect(), this.backoff);
@@ -171,7 +176,7 @@ class Receiver {
     this.send('< GET 0 ALL >');
     for (let c = 1; c <= this.nCh; c++) {
       ['CHAN_NAME', 'AUDIO_GAIN', 'AUDIO_OUT_LVL_SWITCH', 'GROUP_CHANNEL', 'FREQUENCY',
-        'TX_MODEL', 'TX_BATT_BARS', 'TX_BATT_MINS'].forEach((k) => this.send(`< GET ${c} ${k} >`));
+        'TX_MODEL', 'RSSI 0', 'TX_BATT_BARS', 'TX_BATT_MINS'].forEach((k) => this.send(`< GET ${c} ${k} >`));
     }
   }
 
@@ -185,22 +190,26 @@ class Receiver {
   }
 
   handle(kind, body) {
-    if (kind === 'ERR') return;
+    if (kind === 'ERR') {                              // the receiver refused or did not understand something: keep a note in the log
+      this.errs = this.errs || new Set();
+      if (this.errs.size < 10 && !this.errs.has(body)) { this.errs.add(body); console.log(`[${this.name}] receiver answered: < ERR ${body} >`); }
+      return;
+    }
     this.lastData = Date.now();
     const tok = body.match(/\{[^}]*\}|\S+/g) || [];
     if (!tok.length) return;
 
     if (kind === 'SAMPLE') {
+      // SLX-D: < SAMPLE ch ALL peak rms rssi >   (each value minus 120 = dBFS / dBm)
       const c = this.chan(toInt(tok[0]));
-      if (!c || tok[1] !== 'ALL' || tok.length < 11) return;
-      const v = tok.slice(2);
-      const q = toInt(v[0]);
-      c.quality = (q == null || q > 5) ? 0 : q;
-      c.peak = (toInt(v[2]) ?? 0) - 120;
-      c.rms = (toInt(v[3]) ?? 0) - 120;
-      c.rssiA = (toInt(v[6]) ?? 0) - 128;
-      c.rssiB = (toInt(v[8]) ?? 0) - 128;
-      c.tx = c.quality > 0;
+      if (!c || tok[1] !== 'ALL' || tok.length < 5) {
+        if (!this.badSample) { this.badSample = true; console.log(`[${this.name}] meter message in an unexpected format: < SAMPLE ${body} >`); }
+        return;
+      }
+      c.peak = (toInt(tok[2]) ?? 0) - 120;
+      c.rms = (toInt(tok[3]) ?? 0) - 120;
+      const rssi = (toInt(tok[4]) ?? 0) - 120;
+      if (Date.now() - (this.antAt[c.ch] || 0) > 4000) { c.rssiA = rssi; c.rssiB = rssi; }   // no per-antenna reading lately
       return;
     }
 
@@ -223,7 +232,12 @@ class Receiver {
       case 'AUDIO_OUT_LVL_SWITCH': c.out = unbrace(val).toUpperCase(); break;
       case 'FREQUENCY': { const n = toInt(val); if (n != null) c.freq = n / 1000; break; }
       case 'GROUP_CHANNEL': c.group = unbrace(val); break;
-      case 'TX_MODEL': c.txModel = unbrace(val); break;
+      case 'TX_MODEL': { c.txModel = unbrace(val).toUpperCase(); c.tx = !!c.txModel && c.txModel !== 'UNKNOWN'; break; }   // a transmitter is linked when the model is known
+      case 'RSSI': {                                   // "1 083" = antenna 1, per-antenna signal strength
+        const m = String(val).match(/^(\d)\s+(\d+)/);
+        if (m) { const dbm = Number(m[2]) - 120; if (m[1] === '1') c.rssiA = dbm; else if (m[1] === '2') c.rssiB = dbm; this.antAt[c.ch] = Date.now(); }
+        break;
+      }
       case 'TX_BATT_BARS': { const n = toInt(val); c.battBars = (n == null || n > 5) ? null : n; break; }
       case 'TX_BATT_MINS': { const n = toInt(val); c.battMins = (n == null || n >= 65534) ? null : n; break; }
       default: break;

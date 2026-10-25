@@ -932,7 +932,7 @@
         var o = r.ch[c.ch]; if (!o) return;
         o.b.textContent = 'Ch ' + c.ch + (c.name ? ' · ' + c.name : '');
         o.s.textContent = !rx.online ? 'No data' : c.tx
-          ? 'RF A ' + c.rssiA + ' dBm · B ' + c.rssiB + ' dBm · quality ' + c.quality + (c.txModel ? ' · ' + c.txModel : '') + (c.group ? ' · group ' + c.group : '')
+          ? 'RF A ' + c.rssiA + ' dBm · B ' + c.rssiB + ' dBm' + (c.txModel ? ' · ' + c.txModel : '') + (c.group ? ' · group ' + c.group : '')
           : 'No transmitter linked';
       });
     });
@@ -1069,7 +1069,7 @@
   function startPreview() {
     mode = 'preview';
     sim = SlxSim.create();
-    function frame() { sim.tick(0.25); var s = sim.snapshot(); s.demo = 'preview'; s.canControl = true; s.pinRequired = false; s.version = '0.6.2'; render(s); }
+    function frame() { sim.tick(0.25); var s = sim.snapshot(); s.demo = 'preview'; s.canControl = true; s.pinRequired = false; s.version = '0.6.3'; render(s); }
     frame(); setInterval(frame, 250);
   }
 
