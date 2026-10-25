@@ -2,7 +2,7 @@
 
 Web dashboard for monitoring and controlling Shure SLX-D receivers (SLXD4 and SLXD4D) from any browser on your network. Part of the Live series.
 
-Version 0.6.3
+Version 0.6.4
 
 ## The mixer
 
@@ -103,7 +103,7 @@ Set **Advanced Settings > Controller Access** to **Allow**. SLX-D blocks third-p
 
 ## config.json (optional)
 
-Everything below is normally written for you by the web page. You can also edit it by hand while LiveMic is stopped: `receivers` (`name`, `host`, `channels`), `readOnly`, `meterMs` (update interval, default 250), and `demo` (true = simulated receivers). `controlPin` in plain text still works, but setting the PIN in the web page stores it hashed. The port comes from the `PORT` environment variable (default 8080); in Docker, map it with `ports`.
+Everything below is normally written for you by the web page. You can also edit it by hand while LiveMic is stopped: `receivers` (`name`, `host`, `channels`), `readOnly`, `meterMs` (meter update interval in milliseconds, default 100, minimum 100; raise it only on a slow link), and `demo` (true = simulated receivers). `controlPin` in plain text still works, but setting the PIN in the web page stores it hashed. The port comes from the `PORT` environment variable (default 8080); in Docker, map it with `ports`.
 
 Anyone on the network can open the dashboard. Set a control PIN so only people who know it can change settings.
 

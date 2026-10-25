@@ -500,8 +500,8 @@
         // audio
         if (c.peak > k.peakHold || now - k.peakAt > 1500) { k.peakHold = c.peak; k.peakAt = now; }
         if (c.tx && c.peak >= CLIP_DBFS) k.clipUntil = now + 3000;
-        k.lv.style.clipPath = 'inset(' + (100 - pct(c.tx ? c.rms : METER_MIN, METER_MIN, METER_MAX)) + '% 0 0 0)';
-        k.pk.style.bottom = pct(k.peakHold, METER_MIN, METER_MAX) + '%';
+        k.tgtLv = pct(c.tx ? c.rms : METER_MIN, METER_MIN, METER_MAX);       // the meter glides to these (see animate)
+        k.tgtPk = pct(k.peakHold, METER_MIN, METER_MAX);
         k.pk.style.display = c.tx ? '' : 'none';
         k.lvl.textContent = c.tx ? c.rms + ' dBFS' : '—';
         k.clip.classList.toggle('on', now < k.clipUntil);
@@ -534,6 +534,24 @@
     alertsEl.innerHTML = alerts.slice(0, 8).map(function (a) { return '<span class="st ' + a.lvl + '"><span class="dot ' + a.lvl + '"></span>' + esc(a.text) + '</span>'; }).join('');
     if (inSetup) updateSettings(s);
   }
+
+  // meters glide between updates: they rise almost at once and fall smoothly, like a hardware meter
+  var lastFrame = 0;
+  function animate(t) {
+    var dt = Math.min(100, (t - lastFrame) || 16); lastFrame = t;
+    var up = 1 - Math.exp(-dt / 25), down = 1 - Math.exp(-dt / 160), pkDown = 1 - Math.exp(-dt / 260);
+    Object.keys(strips).forEach(function (key) {
+      var k = strips[key];
+      if (k.tgtLv === undefined) return;
+      var d = k.dispLv || 0, p = k.dispPk || 0;
+      d += (k.tgtLv - d) * (k.tgtLv > d ? up : down);
+      p = k.tgtPk >= p ? k.tgtPk : p + (k.tgtPk - p) * pkDown;
+      if (Math.abs(d - (k.dispLv || 0)) > 0.02 || k.dispLv === undefined) { k.dispLv = d; k.lv.style.clipPath = 'inset(' + (100 - d) + '% 0 0 0)'; }
+      if (Math.abs(p - (k.dispPk || 0)) > 0.02 || k.dispPk === undefined) { k.dispPk = p; k.pk.style.bottom = p + '%'; }
+    });
+    requestAnimationFrame(animate);
+  }
+  requestAnimationFrame(animate);
 
   function renderStatus(s, online) {
     var parts = [], n = s.receivers.length;
@@ -1069,7 +1087,7 @@
   function startPreview() {
     mode = 'preview';
     sim = SlxSim.create();
-    function frame() { sim.tick(0.25); var s = sim.snapshot(); s.demo = 'preview'; s.canControl = true; s.pinRequired = false; s.version = '0.6.3'; render(s); }
+    function frame() { sim.tick(0.25); var s = sim.snapshot(); s.demo = 'preview'; s.canControl = true; s.pinRequired = false; s.version = '0.6.4'; render(s); }
     frame(); setInterval(frame, 250);
   }
 

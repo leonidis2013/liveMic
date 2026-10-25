@@ -30,7 +30,7 @@ if (fs.existsSync(cfgPath)) {
   console.log('No config file at ' + cfgPath + ' yet. It is created when you add a receiver in the web page.');
 }
 const PORT = Number(process.env.PORT || cfg.port || 8080);
-const METER_MS = Math.max(100, Number(cfg.meterMs) || 250);
+const METER_MS = Math.max(100, Number(cfg.meterMs) || 100);
 const DEMO = args.includes('--demo') || cfg.demo === true;
 const SCAN_PORT = Number(process.env.LIVEMIC_SCAN_PORT) || 2202;
 const IN_DOCKER = fs.existsSync('/.dockerenv');
